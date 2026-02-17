@@ -1,0 +1,147 @@
+# =============================================================================
+# AI Medical Receptionist - Production Docker Compose
+# =============================================================================
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#
+# Architecture:
+#   db       - PostgreSQL 16 (internal only, not exposed to host)
+#   backend  - FastAPI app (internal only, nginx proxies to it)
+#   nginx    - Builds frontend via multi-stage Dockerfile, serves static files
+#              directly, and reverse proxies /api/ and /ws/ to backend
+#
+# No separate frontend container is needed -- nginx IS the frontend server.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 Database
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: medical_receptionist_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=en_US.utf8 --lc-ctype=en_US.utf8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Database is NOT exposed to host in production.
+    # Access via: docker compose -f docker-compose.prod.yml exec db psql -U $POSTGRES_USER -d $POSTGRES_DB
+
+  # ---------------------------------------------------------------------------
+  # FastAPI Backend (internal only -- not exposed to host)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: medical_receptionist_backend
+    restart: unless-stopped
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Authentication
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+      # CORS -- in production, restrict to your domain
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      # Twilio telephony
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      # Vapi.ai voice AI
+      VAPI_API_KEY: ${VAPI_API_KEY}
+      VAPI_WEBHOOK_SECRET: ${VAPI_WEBHOOK_SECRET}
+      # Stedi insurance verification
+      STEDI_API_KEY: ${STEDI_API_KEY}
+      # Application
+      APP_ENV: production
+      APP_URL: ${APP_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+    # Production: no --reload, multiple workers, proxy-headers for nginx
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers ${UVICORN_WORKERS:-4}
+      --log-level ${LOG_LEVEL:-info}
+      --proxy-headers
+      --forwarded-allow-ips=*
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # Nginx -- Serves built frontend + reverse proxy to backend
+  #
+  # Uses frontend/Dockerfile.prod (multi-stage):
+  #   Stage 1: node:20-alpine builds React/Vite app
+  #   Stage 2: nginx:alpine serves the dist/ output
+  #
+  # The production nginx.conf is mounted to handle both static file serving
+  # and API/WebSocket reverse proxying to the backend container.
+  # ---------------------------------------------------------------------------
+  nginx:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    container_name: medical_receptionist_nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # Override container's default nginx config with production config
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      # SSL certificates directory (mount certs for HTTPS)
+      - ${SSL_CERT_DIR:-./nginx/ssl}:/etc/nginx/ssl:ro
+      # Persist nginx logs for monitoring/debugging
+      - nginx_logs:/var/log/nginx
+    networks:
+      - internal
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  nginx_logs:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  internal:
+    driver: bridge

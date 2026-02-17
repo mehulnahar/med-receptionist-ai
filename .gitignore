@@ -38,3 +38,12 @@ logs/
 credentials.json
 *.pem
 *.key
+
+# Claude Code
+.claude/
+
+# Windows artifacts
+nul
+
+# Planning files
+.planning/
