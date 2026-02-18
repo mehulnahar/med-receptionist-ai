@@ -123,13 +123,14 @@ async def get_feedback_stats(
     ]
 
     # Aggregate scores
+    from sqlalchemy import Integer as SAInteger, cast as sa_cast
     agg = await db.execute(
         select(
             func.count(CallFeedback.id),
             func.avg(CallFeedback.overall_score),
             func.avg(CallFeedback.resolution_score),
             func.avg(CallFeedback.empathy_score),
-            func.avg(func.cast(CallFeedback.was_successful, func.literal_column("INTEGER"))),
+            func.count(CallFeedback.id).filter(CallFeedback.was_successful == True),
         ).where(*filters)
     )
     row = agg.one()
@@ -169,7 +170,7 @@ async def get_feedback_stats(
         avg_overall_score=round(float(row[1]), 2) if row[1] else None,
         avg_resolution_score=round(float(row[2]), 2) if row[2] else None,
         avg_empathy_score=round(float(row[3]), 2) if row[3] else None,
-        success_rate=round(float(row[4]) * 100, 1) if row[4] else None,
+        success_rate=round((row[4] / row[0]) * 100, 1) if row[0] and row[0] > 0 else None,
         top_failure_points=top_failures,
         score_trend=score_trend,
     )
