@@ -134,6 +134,13 @@ async def book_appointment_endpoint(
     except Exception as sms_err:
         logger.warning("SMS auto-send failed for appointment %s: %s", appt.id, sms_err)
 
+    # Auto-schedule appointment reminders (non-blocking)
+    try:
+        from app.services.reminder_service import schedule_reminders
+        await schedule_reminders(db, appt)
+    except Exception as reminder_err:
+        logger.warning("Reminder auto-schedule failed for appointment %s: %s", appt.id, reminder_err)
+
     return AppointmentResponse(**build_appointment_response(appt))
 
 
@@ -298,6 +305,13 @@ async def cancel_appointment_endpoint(
             detail=error_msg,
         )
 
+    # Cancel pending reminders for the cancelled appointment
+    try:
+        from app.services.reminder_service import cancel_reminders
+        await cancel_reminders(db, appointment_id)
+    except Exception as reminder_err:
+        logger.warning("Failed to cancel reminders for appointment %s: %s", appointment_id, reminder_err)
+
     return AppointmentResponse(**build_appointment_response(appt))
 
 
@@ -376,5 +390,13 @@ async def reschedule_appointment_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
         )
+
+    # Cancel old reminders and schedule new ones for the rescheduled appointment
+    try:
+        from app.services.reminder_service import cancel_reminders, schedule_reminders
+        await cancel_reminders(db, appointment_id)
+        await schedule_reminders(db, new_appt)
+    except Exception as reminder_err:
+        logger.warning("Failed to update reminders for rescheduled appointment %s: %s", appointment_id, reminder_err)
 
     return AppointmentResponse(**build_appointment_response(new_appt))

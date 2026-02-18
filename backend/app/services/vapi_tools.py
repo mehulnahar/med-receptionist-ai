@@ -471,6 +471,24 @@ async def tool_book_appointment(
                 appointment.id, sms_err,
             )
 
+        # --- Auto-schedule appointment reminders (non-blocking) ---
+        reminders_scheduled = 0
+        try:
+            from app.services.reminder_service import schedule_reminders
+            reminders = await schedule_reminders(db, appointment)
+            reminders_scheduled = len(reminders)
+            if reminders_scheduled:
+                logger.info(
+                    "Auto-scheduled %d reminders for appointment %s",
+                    reminders_scheduled, appointment.id,
+                )
+        except Exception as reminder_err:
+            # Reminder scheduling failure should never block the booking response
+            logger.warning(
+                "Reminder auto-schedule failed for appointment %s: %s",
+                appointment.id, reminder_err,
+            )
+
         return {
             "success": True,
             "appointment_id": str(appointment.id),
@@ -480,6 +498,7 @@ async def tool_book_appointment(
             "patient_name": f"{patient.first_name} {patient.last_name}",
             "appointment_type": appt_type.name,
             "sms_sent": sms_sent,
+            "reminders_scheduled": reminders_scheduled,
         }
 
     except KeyError as e:
@@ -696,10 +715,35 @@ async def tool_cancel_appointment(
         if vapi_call_id:
             await link_call_to_patient(db, vapi_call_id, patient_id)
 
+        # Check waitlist for patients who might want this newly opened slot
+        waitlist_notified = 0
+        try:
+            from app.services.waitlist_service import check_waitlist_on_cancellation
+            notifications = await check_waitlist_on_cancellation(
+                db, practice_id, cancelled_appt,
+            )
+            waitlist_notified = sum(
+                1 for n in notifications if n.get("sms_success")
+            )
+            if waitlist_notified:
+                logger.info(
+                    "Waitlist: notified %d patient(s) about cancelled slot on %s at %s",
+                    waitlist_notified,
+                    cancelled_appt.date.isoformat(),
+                    cancelled_appt.time.strftime("%H:%M"),
+                )
+        except Exception as wl_err:
+            # Waitlist notification failure should never block the cancellation response
+            logger.warning(
+                "Waitlist check failed after cancellation of appointment %s: %s",
+                appointment.id, wl_err,
+            )
+
         return {
             "success": True,
             "cancelled_date": cancelled_appt.date.isoformat(),
             "cancelled_time": cancelled_appt.time.strftime("%H:%M"),
+            "waitlist_notified": waitlist_notified,
         }
 
     except KeyError as e:
@@ -1296,6 +1340,97 @@ async def tool_leave_voicemail(
 
 
 # ---------------------------------------------------------------------------
+# 13. Add to waitlist
+# ---------------------------------------------------------------------------
+
+async def tool_add_to_waitlist(
+    db: AsyncSession,
+    practice_id: UUID,
+    params: dict,
+    vapi_call_id: Optional[str] = None,
+) -> dict:
+    """
+    Add a patient to the waitlist when no slots are available and the
+    patient wants the earliest possible appointment.
+
+    params: {
+        "patient_name": str (required),
+        "patient_phone": str (required),
+        "appointment_type": str (optional - name of appointment type),
+        "preferred_dates": str (optional - e.g. "next week", "Monday-Friday"),
+        "notes": str (optional)
+    }
+    """
+    try:
+        from app.services.waitlist_service import add_to_waitlist
+
+        patient_name = params.get("patient_name", "").strip()
+        patient_phone = params.get("patient_phone", "").strip()
+
+        if not patient_name:
+            return {"success": False, "error": "Patient name is required"}
+        if not patient_phone:
+            return {"success": False, "error": "Patient phone number is required"}
+
+        notes = params.get("notes", "").strip() or None
+        preferred_dates = params.get("preferred_dates", "").strip()
+
+        # Try to resolve appointment type by name
+        appointment_type_id = None
+        appt_type_name = params.get("appointment_type")
+        if appt_type_name:
+            appt_type = await _find_appointment_type_by_name(
+                db, practice_id, appt_type_name
+            )
+            if appt_type:
+                appointment_type_id = appt_type.id
+
+        # Try to find existing patient by name + phone
+        patient_id = None
+        if vapi_call_id:
+            from app.models.call import Call
+            call_stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+            call_result = await db.execute(call_stmt)
+            call_record = call_result.scalar_one_or_none()
+            if call_record and call_record.patient_id:
+                patient_id = call_record.patient_id
+
+        # Build notes with preferred dates context if provided
+        full_notes = notes or ""
+        if preferred_dates:
+            pref_note = f"Preferred dates: {preferred_dates}"
+            full_notes = f"{full_notes}\n{pref_note}".strip() if full_notes else pref_note
+
+        entry = await add_to_waitlist(
+            db=db,
+            practice_id=practice_id,
+            patient_name=patient_name,
+            patient_phone=patient_phone,
+            patient_id=patient_id,
+            appointment_type_id=appointment_type_id,
+            notes=full_notes if full_notes else None,
+        )
+
+        return {
+            "success": True,
+            "waitlist_id": str(entry.id),
+            "patient_name": patient_name,
+            "message": (
+                f"I've added {patient_name.split()[0]} to our waitlist. "
+                "If a slot opens up, we'll send a text message to confirm. "
+                "Is there anything else I can help you with?"
+            ),
+        }
+
+    except ValueError as e:
+        logger.warning("tool_add_to_waitlist: Validation error: %s", e)
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        logger.exception("tool_add_to_waitlist failed")
+        return {"success": False, "error": f"Failed to add to waitlist: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
 # Tool Registry and Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -1312,6 +1447,7 @@ TOOL_REGISTRY = {
     "transfer_to_staff": tool_transfer_to_staff,
     "check_office_hours": tool_check_office_hours,
     "leave_voicemail": tool_leave_voicemail,
+    "add_to_waitlist": tool_add_to_waitlist,
 }
 
 

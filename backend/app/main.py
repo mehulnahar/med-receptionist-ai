@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.security import SecurityHeadersMiddleware
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -196,10 +198,87 @@ async def _run_startup_migrations():
             await session.rollback()
             logger.warning("startup_migrations: voicemails table migration skipped: %s", e)
 
+        # Create appointment_reminders table
+        try:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS appointment_reminders (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    practice_id UUID NOT NULL REFERENCES practices(id),
+                    appointment_id UUID NOT NULL REFERENCES appointments(id),
+                    patient_id UUID NOT NULL REFERENCES patients(id),
+                    reminder_type VARCHAR(20) NOT NULL DEFAULT 'sms',
+                    scheduled_for TIMESTAMPTZ NOT NULL,
+                    sent_at TIMESTAMPTZ,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    message_content TEXT,
+                    response TEXT,
+                    message_sid VARCHAR(100),
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            await session.commit()
+            logger.info("startup_migrations: appointment_reminders table ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: appointment_reminders table migration skipped: %s", e)
+
+        # Create waitlist_entries table
+        try:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS waitlist_entries (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    practice_id UUID NOT NULL REFERENCES practices(id),
+                    patient_id UUID REFERENCES patients(id),
+                    patient_name VARCHAR(255) NOT NULL,
+                    patient_phone VARCHAR(20) NOT NULL,
+                    appointment_type_id UUID REFERENCES appointment_types(id),
+                    preferred_date_start DATE,
+                    preferred_date_end DATE,
+                    preferred_time_start TIME,
+                    preferred_time_end TIME,
+                    notes TEXT,
+                    priority INTEGER NOT NULL DEFAULT 3,
+                    status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+                    notified_at TIMESTAMPTZ,
+                    expires_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            await session.commit()
+            logger.info("startup_migrations: waitlist_entries table ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: waitlist_entries table migration skipped: %s", e)
+
+
+async def _reminder_check_loop():
+    """Background loop that processes pending appointment reminders every 60 seconds."""
+    import asyncio
+    from app.database import AsyncSessionLocal
+    from app.services.reminder_service import process_pending_reminders
+
+    logger.info("reminder_check_loop: started")
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+            async with AsyncSessionLocal() as db:
+                sent = await process_pending_reminders(db)
+                await db.commit()
+                if sent > 0:
+                    logger.info("reminder_check_loop: sent %d reminders", sent)
+        except Exception as e:
+            logger.warning("reminder_check_loop: error in cycle: %s", e)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run migrations and seed on startup."""
+    """Run migrations, seed, and start background tasks on startup."""
+    import asyncio
+
     # Run lightweight schema migrations
     try:
         await _run_startup_migrations()
@@ -212,7 +291,18 @@ async def lifespan(app: FastAPI):
         await seed_database()
     except Exception as exc:
         logger.warning("Seed skipped or failed: %s", exc)
+
+    # Start background reminder scheduler
+    reminder_task = asyncio.create_task(_reminder_check_loop())
+
     yield
+
+    # Cleanup: cancel the background task on shutdown
+    reminder_task.cancel()
+    try:
+        await reminder_task
+    except asyncio.CancelledError:
+        logger.info("reminder_check_loop: stopped")
 
 
 app = FastAPI(
@@ -221,6 +311,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ---------------------------------------------------------------------------
+# Middleware stack (last added = outermost = processes requests first)
+# Request flow: CORS -> RateLimit -> Security -> Routes
+# ---------------------------------------------------------------------------
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.CORS_ORIGINS.split(",")],
@@ -247,6 +343,8 @@ from app.routes.sms import router as sms_router
 from app.routes.feedback import router as feedback_router
 from app.routes.refills import router as refills_router
 from app.routes.voicemails import router as voicemails_router
+from app.routes.reminders import router as reminders_router
+from app.routes.waitlist import router as waitlist_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
@@ -263,6 +361,8 @@ app.include_router(sms_router, prefix="/api/sms", tags=["SMS Notifications"])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["Feedback Loop"])
 app.include_router(refills_router, prefix="/api/refills", tags=["Prescription Refills"])
 app.include_router(voicemails_router, prefix="/api/voicemails", tags=["Voicemails"])
+app.include_router(reminders_router, prefix="/api/reminders", tags=["Appointment Reminders"])
+app.include_router(waitlist_router, prefix="/api/waitlist", tags=["Waitlist"])
 
 
 @app.get("/api/health")
