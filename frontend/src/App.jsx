@@ -9,6 +9,7 @@ import Appointments from './pages/Appointments'
 import Patients from './pages/Patients'
 import Settings from './pages/Settings'
 import Calls from './pages/Calls'
+import Analytics from './pages/Analytics'
 import Admin from './pages/Admin'
 
 function App() {
@@ -38,6 +39,7 @@ function App() {
             }
           />
           <Route path="calls" element={<Calls />} />
+          <Route path="analytics" element={<Analytics />} />
           <Route
             path="admin"
             element={

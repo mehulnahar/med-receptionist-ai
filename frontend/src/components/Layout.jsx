@@ -5,6 +5,7 @@ import {
   Calendar,
   Users,
   Phone,
+  BarChart3,
   Settings,
   Shield,
   LogOut,
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { label: 'Appointments', path: '/appointments', icon: Calendar },
   { label: 'Patients', path: '/patients', icon: Users },
   { label: 'Call Log', path: '/calls', icon: Phone },
+  { label: 'Analytics', path: '/analytics', icon: BarChart3 },
   {
     label: 'Settings',
     path: '/settings',

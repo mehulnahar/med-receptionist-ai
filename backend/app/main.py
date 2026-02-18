@@ -345,6 +345,7 @@ from app.routes.refills import router as refills_router
 from app.routes.voicemails import router as voicemails_router
 from app.routes.reminders import router as reminders_router
 from app.routes.waitlist import router as waitlist_router
+from app.routes.analytics import router as analytics_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
@@ -363,6 +364,7 @@ app.include_router(refills_router, prefix="/api/refills", tags=["Prescription Re
 app.include_router(voicemails_router, prefix="/api/voicemails", tags=["Voicemails"])
 app.include_router(reminders_router, prefix="/api/reminders", tags=["Appointment Reminders"])
 app.include_router(waitlist_router, prefix="/api/waitlist", tags=["Waitlist"])
+app.include_router(analytics_router, prefix="/api/analytics", tags=["Analytics"])
 
 
 @app.get("/api/health")
