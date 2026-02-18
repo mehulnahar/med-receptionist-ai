@@ -16,6 +16,7 @@ class Call(Base):
     vapi_call_id = Column(String(255), nullable=True)
     twilio_call_sid = Column(String(255), nullable=True)
     caller_phone = Column(String(20), nullable=True)
+    caller_name = Column(String(255), nullable=True)
     direction = Column(String(10), default="inbound", nullable=False)
     language = Column(String(5), default="en", nullable=False)
     duration_seconds = Column(Integer, nullable=True)

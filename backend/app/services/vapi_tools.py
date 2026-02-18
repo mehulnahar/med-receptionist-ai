@@ -12,7 +12,7 @@ guarantee Vapi always gets a valid JSON response (never an unhandled crash).
 
 import inspect
 import logging
-from datetime import date, time, datetime
+from datetime import date, time, datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -32,7 +32,11 @@ from app.services.booking_service import (
     cancel_appointment,
     reschedule_appointment,
 )
-from app.services.call_service import link_call_to_patient, link_call_to_appointment
+from app.services.call_service import (
+    link_call_to_patient,
+    link_call_to_appointment,
+    save_caller_info_to_call,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -256,8 +260,11 @@ async def tool_check_availability(
 
     params: {"date": "YYYY-MM-DD", "appointment_type": str (optional)}
     """
+    DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
     try:
         target_date = _parse_date(params["date"])
+        today = date.today()
         appointment_type_id = None
 
         # If an appointment type name is provided, look it up
@@ -269,26 +276,64 @@ async def tool_check_availability(
             if appt_type:
                 appointment_type_id = appt_type.id
 
+        # Prevent booking in the past
+        if target_date < today:
+            return {
+                "date": target_date.isoformat(),
+                "date_display": f"{DAY_NAMES[target_date.weekday()]}, {target_date.strftime('%B %d, %Y')}",
+                "available_slots": [],
+                "total_available": 0,
+                "message": f"That date is in the past. Today is {DAY_NAMES[today.weekday()]}, {today.strftime('%B %d, %Y')}.",
+                "today": today.isoformat(),
+            }
+
         slots = await get_available_slots(
             db, practice_id, target_date, appointment_type_id
         )
 
-        available_slots = [
-            s["time"].strftime("%H:%M") for s in slots if s["is_available"]
-        ]
+        # Deduplicate and format slots as human-readable times
+        seen = set()
+        available_slots = []
+        for s in slots:
+            if s["is_available"]:
+                time_str = s["time"].strftime("%H:%M")
+                if time_str not in seen:
+                    seen.add(time_str)
+                    # Also provide 12-hour format for natural speech
+                    hour = s["time"].hour
+                    minute = s["time"].minute
+                    period = "AM" if hour < 12 else "PM"
+                    display_hour = hour if hour <= 12 else hour - 12
+                    if display_hour == 0:
+                        display_hour = 12
+                    time_display = f"{display_hour}:{minute:02d} {period}" if minute else f"{display_hour} {period}"
+                    available_slots.append(time_str)
+
+        # Build the friendly date display
+        day_name = DAY_NAMES[target_date.weekday()]
+        date_display = f"{day_name}, {target_date.strftime('%B %d, %Y')}"
+        if target_date == today:
+            date_display = f"Today ({date_display})"
+        elif target_date == today + timedelta(days=1):
+            date_display = f"Tomorrow ({date_display})"
 
         if not available_slots:
+            # Suggest trying the next working day
             return {
                 "date": target_date.isoformat(),
+                "date_display": date_display,
                 "available_slots": [],
                 "total_available": 0,
-                "message": "No availability on this date",
+                "message": f"No availability on {date_display}. Please try another date.",
+                "today": today.isoformat(),
             }
 
         return {
             "date": target_date.isoformat(),
+            "date_display": date_display,
             "available_slots": available_slots,
             "total_available": len(available_slots),
+            "today": today.isoformat(),
         }
 
     except KeyError as e:
@@ -751,7 +796,104 @@ async def tool_reschedule_appointment(
 
 
 # ---------------------------------------------------------------------------
-# 8. Transfer to staff
+# 8. Save caller info (early data capture)
+# ---------------------------------------------------------------------------
+
+async def tool_save_caller_info(
+    db: AsyncSession,
+    practice_id: UUID,
+    params: dict,
+    vapi_call_id: Optional[str] = None,
+) -> dict:
+    """
+    Save caller's name and phone number early in the conversation.
+
+    This tool is called as soon as the AI collects the caller's name and
+    phone number -- BEFORE the full booking flow. This ensures that even if
+    the call drops, we have the caller's identity on record for callbacks.
+
+    If the caller matches an existing patient, we link them immediately.
+    If not, we still store name + phone on the call record.
+
+    HIPAA-safe: This stores structured data via a tool call, not in
+    transcripts. Works regardless of HIPAA mode.
+
+    params: {
+        "first_name": str,
+        "last_name": str,
+        "phone": str (optional -- the number the caller wants to be reached at),
+        "dob": "YYYY-MM-DD" (optional -- if already collected),
+        "reason": str (optional -- brief reason for calling)
+    }
+    """
+    try:
+        first_name = params.get("first_name", "").strip()
+        last_name = params.get("last_name", "").strip()
+        phone = params.get("phone", "").strip()
+        dob_str = params.get("dob", "").strip()
+        reason = params.get("reason", "").strip()
+
+        if not first_name and not last_name:
+            return {
+                "saved": False,
+                "error": "At least a first or last name is required",
+            }
+
+        caller_name = f"{first_name} {last_name}".strip()
+
+        # Try to find an existing patient if we have enough info
+        patient_id = None
+        patient_found = False
+
+        if first_name and last_name and dob_str:
+            try:
+                dob = _parse_date(dob_str)
+                patients = await search_patients(
+                    db, practice_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    dob=dob,
+                )
+                if patients:
+                    patient_id = patients[0].id
+                    patient_found = True
+            except (ValueError, Exception) as e:
+                logger.warning("save_caller_info: patient lookup failed: %s", e)
+
+        # Save to call record (name + phone + patient link)
+        if vapi_call_id:
+            await save_caller_info_to_call(
+                db,
+                vapi_call_id=vapi_call_id,
+                caller_name=caller_name,
+                caller_phone=phone if phone else None,
+                patient_id=patient_id,
+            )
+
+        result = {
+            "saved": True,
+            "caller_name": caller_name,
+            "is_existing_patient": patient_found,
+        }
+
+        if patient_found:
+            result["patient_id"] = str(patient_id)
+            result["message"] = f"Welcome back, {first_name}! I found your record."
+        else:
+            result["message"] = f"Thank you, {first_name}. I've noted your information."
+
+        if reason:
+            result["reason"] = reason
+
+        return result
+
+    except Exception as e:
+        logger.exception("tool_save_caller_info failed")
+        return {"saved": False, "error": f"Failed to save caller info: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
+# 9. Transfer to staff
 # ---------------------------------------------------------------------------
 
 async def tool_transfer_to_staff(
@@ -802,6 +944,7 @@ async def tool_transfer_to_staff(
 # ---------------------------------------------------------------------------
 
 TOOL_REGISTRY = {
+    "save_caller_info": tool_save_caller_info,
     "check_patient_exists": tool_check_patient_exists,
     "get_patient_details": tool_get_patient_details,
     "check_availability": tool_check_availability,

@@ -270,11 +270,10 @@ async def _handle_assistant_request(
     """
     Vapi is asking for assistant configuration.
 
-    Return None to use the assistant already configured on the Vapi dashboard.
-    In the future this can return dynamic assistant overrides per-practice.
+    Returns the configured assistant ID so Vapi uses the saved assistant.
     """
     logger.info("vapi_webhook: assistant-request for practice %s", practice_id)
-    # Returning {"assistant": None} tells Vapi to use its configured assistant
+    # Return None to use the assistant already configured on the Vapi dashboard
     return JSONResponse(status_code=200, content={"assistant": None})
 
 
@@ -784,6 +783,7 @@ async def list_calls(
                 vapi_call_id=call.vapi_call_id,
                 direction=call.direction,
                 caller_number=call.caller_phone,
+                caller_name=call.caller_name,
                 status=call.status,
                 duration_seconds=call.duration_seconds,
                 patient_id=call.patient_id,

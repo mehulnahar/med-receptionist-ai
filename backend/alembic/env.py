@@ -12,6 +12,13 @@ from app.models import *  # noqa: F401,F403 - Import all models for autogenerate
 config = context.config
 
 database_url = os.getenv("DATABASE_URL_SYNC")
+if not database_url:
+    # Fall back: convert async DATABASE_URL to sync format for Alembic
+    async_url = os.getenv("DATABASE_URL", "")
+    if async_url:
+        database_url = async_url.replace("+asyncpg", "+psycopg2")
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 

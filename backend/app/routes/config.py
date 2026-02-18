@@ -1,5 +1,6 @@
 """Practice configuration endpoints."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -12,6 +13,7 @@ from app.models.practice_config import PracticeConfig
 from app.schemas.practice_config import PracticeConfigResponse, PracticeConfigUpdate
 from app.middleware.auth import get_current_user, require_practice_admin, require_any_staff
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -64,9 +66,28 @@ async def update_practice_config(
         )
 
     update_data = request.model_dump(exclude_unset=True)
+
+    # Track if transfer_number is changing
+    transfer_number_changed = (
+        "transfer_number" in update_data
+        and update_data["transfer_number"] != config.transfer_number
+    )
+
     for field, value in update_data.items():
         setattr(config, field, value)
 
     await db.commit()
     await db.refresh(config)
+
+    # Sync transfer number to Vapi assistant when it changes
+    if transfer_number_changed and config.vapi_assistant_id:
+        try:
+            from app.services.vapi_service import update_assistant_transfer_number
+            await update_assistant_transfer_number(
+                assistant_id=config.vapi_assistant_id,
+                transfer_number=config.transfer_number,
+            )
+        except Exception as e:
+            logger.warning("Failed to sync transfer number to Vapi: %s", e)
+
     return PracticeConfigResponse.model_validate(config)

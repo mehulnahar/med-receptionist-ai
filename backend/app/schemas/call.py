@@ -16,6 +16,7 @@ class CallResponse(BaseModel):
     vapi_call_id: str | None = None
     direction: str
     caller_number: str | None = None  # mapped from Call.caller_phone
+    caller_name: str | None = None  # saved early by save_caller_info tool
     status: str | None = None
     duration_seconds: int | None = None
     patient_id: UUID | None = None

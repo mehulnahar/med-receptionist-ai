@@ -233,6 +233,40 @@ async def get_practice_id_from_vapi_call(
 # 7. Resolve practice from Twilio phone number
 # ---------------------------------------------------------------------------
 
+async def save_caller_info_to_call(
+    db: AsyncSession,
+    vapi_call_id: str,
+    caller_name: str | None = None,
+    caller_phone: str | None = None,
+    patient_id: UUID | None = None,
+) -> Call | None:
+    """
+    Save early caller information (name, phone, patient link) to a call record.
+
+    This is called mid-call by the save_caller_info tool so that even if the
+    call drops, we already have the caller's identity on record for callbacks.
+
+    Returns the updated Call or None if no matching call was found.
+    """
+    stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+    result = await db.execute(stmt)
+    call = result.scalar_one_or_none()
+
+    if not call:
+        return None
+
+    if caller_name is not None:
+        call.caller_name = caller_name
+    if caller_phone is not None and caller_phone.strip():
+        call.caller_phone = caller_phone
+    if patient_id is not None:
+        call.patient_id = patient_id
+
+    await db.flush()
+    await db.refresh(call)
+    return call
+
+
 async def resolve_practice_from_phone(
     db: AsyncSession,
     phone_number: str,

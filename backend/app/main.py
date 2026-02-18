@@ -10,9 +10,34 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
+async def _run_startup_migrations():
+    """Run lightweight idempotent schema migrations on startup."""
+    from app.database import AsyncSessionLocal
+    from sqlalchemy import text
+
+    async with AsyncSessionLocal() as session:
+        # Add caller_name column to calls table if not exists
+        try:
+            await session.execute(text(
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS caller_name VARCHAR(255)"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: caller_name column ensured on calls table")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: caller_name migration skipped: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run seed on startup (idempotent)."""
+    """Run migrations and seed on startup."""
+    # Run lightweight schema migrations
+    try:
+        await _run_startup_migrations()
+    except Exception as exc:
+        logger.warning("Startup migrations skipped: %s", exc)
+
+    # Run seed (idempotent)
     try:
         from app.seed import seed_database
         await seed_database()
