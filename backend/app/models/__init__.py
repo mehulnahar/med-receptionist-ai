@@ -10,6 +10,7 @@ from app.models.call import Call
 from app.models.insurance_verification import InsuranceVerification
 from app.models.holiday import Holiday
 from app.models.audit_log import AuditLog
+from app.models.refill_request import RefillRequest
 
 __all__ = [
     "Practice",
@@ -25,4 +26,5 @@ __all__ = [
     "InsuranceVerification",
     "Holiday",
     "AuditLog",
+    "RefillRequest",
 ]

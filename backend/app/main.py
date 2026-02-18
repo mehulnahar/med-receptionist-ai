@@ -139,6 +139,63 @@ async def _run_startup_migrations():
             await session.rollback()
             logger.warning("startup_migrations: feedback tables migration skipped: %s", e)
 
+        # Create refill requests table
+        try:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS refill_requests (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    practice_id UUID NOT NULL REFERENCES practices(id),
+                    patient_id UUID REFERENCES patients(id),
+                    call_id UUID REFERENCES calls(id),
+                    medication_name VARCHAR(255) NOT NULL,
+                    dosage VARCHAR(100),
+                    pharmacy_name VARCHAR(255),
+                    pharmacy_phone VARCHAR(20),
+                    prescribing_doctor VARCHAR(255),
+                    caller_name VARCHAR(255),
+                    caller_phone VARCHAR(20),
+                    urgency VARCHAR(20) DEFAULT 'normal',
+                    notes TEXT,
+                    status VARCHAR(30) DEFAULT 'pending',
+                    reviewed_by UUID REFERENCES users(id),
+                    reviewed_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            await session.commit()
+            logger.info("startup_migrations: refill_requests table ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: refill_requests table migration skipped: %s", e)
+
+        # Create voicemails table
+        try:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS voicemails (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    practice_id UUID NOT NULL REFERENCES practices(id),
+                    call_id UUID REFERENCES calls(id),
+                    patient_id UUID REFERENCES patients(id),
+                    caller_name VARCHAR(255),
+                    caller_phone VARCHAR(20),
+                    message TEXT NOT NULL,
+                    urgency VARCHAR(20) DEFAULT 'normal',
+                    callback_requested BOOLEAN DEFAULT TRUE,
+                    preferred_callback_time VARCHAR(100),
+                    reason VARCHAR(100),
+                    status VARCHAR(20) DEFAULT 'new',
+                    responded_by UUID REFERENCES users(id),
+                    responded_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """))
+            await session.commit()
+            logger.info("startup_migrations: voicemails table ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: voicemails table migration skipped: %s", e)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -188,6 +245,8 @@ from app.routes.webhooks import router as webhook_router
 from app.routes.insurance_verification import router as insurance_verify_router
 from app.routes.sms import router as sms_router
 from app.routes.feedback import router as feedback_router
+from app.routes.refills import router as refills_router
+from app.routes.voicemails import router as voicemails_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
@@ -202,6 +261,8 @@ app.include_router(webhook_router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(insurance_verify_router, prefix="/api/insurance", tags=["Insurance Verification"])
 app.include_router(sms_router, prefix="/api/sms", tags=["SMS Notifications"])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["Feedback Loop"])
+app.include_router(refills_router, prefix="/api/refills", tags=["Prescription Refills"])
+app.include_router(voicemails_router, prefix="/api/voicemails", tags=["Voicemails"])
 
 
 @app.get("/api/health")

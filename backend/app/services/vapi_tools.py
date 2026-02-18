@@ -23,6 +23,8 @@ from app.models.patient import Patient
 from app.models.appointment import Appointment
 from app.models.appointment_type import AppointmentType
 from app.models.practice_config import PracticeConfig
+from app.models.schedule import ScheduleTemplate, ScheduleOverride
+from app.models.voicemail import Voicemail
 from app.services.booking_service import (
     find_or_create_patient,
     search_patients,
@@ -893,7 +895,103 @@ async def tool_save_caller_info(
 
 
 # ---------------------------------------------------------------------------
-# 9. Transfer to staff
+# 9. Request prescription refill
+# ---------------------------------------------------------------------------
+
+async def tool_request_refill(
+    db: AsyncSession,
+    practice_id: UUID,
+    params: dict,
+    vapi_call_id: Optional[str] = None,
+) -> dict:
+    """
+    Submit a prescription refill request.
+
+    params: {
+        "medication_name": str (required),
+        "dosage": str (optional),
+        "pharmacy_name": str (optional),
+        "pharmacy_phone": str (optional),
+        "patient_id": str (optional uuid),
+        "caller_name": str (optional)
+    }
+    """
+    try:
+        from app.models.refill_request import RefillRequest
+        from app.models.call import Call
+
+        medication_name = params.get("medication_name", "").strip()
+        if not medication_name:
+            return {"success": False, "error": "Medication name is required"}
+
+        dosage = params.get("dosage", "").strip() or None
+        pharmacy_name = params.get("pharmacy_name", "").strip() or None
+        pharmacy_phone = params.get("pharmacy_phone", "").strip() or None
+        caller_name = params.get("caller_name", "").strip() or None
+
+        # Resolve patient_id if provided
+        patient_id = None
+        if params.get("patient_id"):
+            try:
+                patient_id = UUID(params["patient_id"])
+            except (ValueError, AttributeError):
+                logger.warning("tool_request_refill: Invalid patient_id format")
+
+        # Resolve call_id from vapi_call_id
+        call_id = None
+        caller_phone = None
+        if vapi_call_id:
+            call_stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+            call_result = await db.execute(call_stmt)
+            call_record = call_result.scalar_one_or_none()
+            if call_record:
+                call_id = call_record.id
+                caller_phone = call_record.caller_phone
+                # If no patient_id provided, try from call record
+                if not patient_id and call_record.patient_id:
+                    patient_id = call_record.patient_id
+
+        refill = RefillRequest(
+            practice_id=practice_id,
+            patient_id=patient_id,
+            call_id=call_id,
+            medication_name=medication_name,
+            dosage=dosage,
+            pharmacy_name=pharmacy_name,
+            pharmacy_phone=pharmacy_phone,
+            caller_name=caller_name,
+            caller_phone=caller_phone,
+            status="pending",
+            urgency="normal",
+        )
+        db.add(refill)
+        await db.flush()
+
+        logger.info(
+            "Refill request created: id=%s, medication=%s, practice=%s",
+            refill.id, medication_name, practice_id,
+        )
+
+        return {
+            "success": True,
+            "refill_id": str(refill.id),
+            "medication_name": medication_name,
+            "message": (
+                f"Your prescription refill request for {medication_name} has been submitted. "
+                "The doctor's office will review it and process it within 24 to 48 hours."
+            ),
+        }
+
+    except KeyError as e:
+        logger.warning("tool_request_refill: Missing required param %s", e)
+        return {"success": False, "error": f"Missing required parameter: {e}"}
+    except Exception as e:
+        logger.exception("tool_request_refill failed")
+        return {"success": False, "error": f"Failed to submit refill request: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
+# 10. Transfer to staff
 # ---------------------------------------------------------------------------
 
 async def tool_transfer_to_staff(
@@ -940,6 +1038,264 @@ async def tool_transfer_to_staff(
 
 
 # ---------------------------------------------------------------------------
+# 11. Check office hours
+# ---------------------------------------------------------------------------
+
+async def tool_check_office_hours(
+    db: AsyncSession,
+    practice_id: UUID,
+    params: dict,
+) -> dict:
+    """
+    Check if the office is currently open based on the practice's schedule.
+
+    Uses ScheduleTemplate for regular weekly hours and ScheduleOverride for
+    date-specific overrides (holidays, special closures, etc.).
+
+    params: {} (no parameters required)
+    """
+    DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+    try:
+        now = datetime.now()
+        current_day = now.weekday()  # 0=Monday, 6=Sunday
+        current_time_val = now.time()
+        today_date = now.date()
+
+        # Check for a date-specific override first
+        override_stmt = select(ScheduleOverride).where(
+            and_(
+                ScheduleOverride.practice_id == practice_id,
+                ScheduleOverride.date == today_date,
+            )
+        )
+        override_result = await db.execute(override_stmt)
+        override = override_result.scalar_one_or_none()
+
+        is_open = False
+        today_start = None
+        today_end = None
+        override_reason = None
+
+        if override:
+            # Override takes precedence
+            if override.is_working and override.start_time and override.end_time:
+                today_start = override.start_time
+                today_end = override.end_time
+                is_open = today_start <= current_time_val <= today_end
+            else:
+                # Explicitly closed (holiday, etc.)
+                is_open = False
+                override_reason = override.reason or "Office closed (schedule override)"
+        else:
+            # Fall back to the regular weekly schedule template
+            template_stmt = select(ScheduleTemplate).where(
+                and_(
+                    ScheduleTemplate.practice_id == practice_id,
+                    ScheduleTemplate.day_of_week == current_day,
+                )
+            )
+            template_result = await db.execute(template_stmt)
+            template = template_result.scalar_one_or_none()
+
+            if template and template.is_enabled and template.start_time and template.end_time:
+                today_start = template.start_time
+                today_end = template.end_time
+                is_open = today_start <= current_time_val <= today_end
+            else:
+                is_open = False
+
+        # Find next open time for the response
+        next_open = None
+        next_open_day = None
+        if not is_open:
+            # If we're before today's opening, next open is today
+            if today_start and current_time_val < today_start:
+                next_open = today_start.strftime("%H:%M")
+                next_open_day = DAY_NAMES[current_day]
+            else:
+                # Search the next 7 days
+                for offset in range(1, 8):
+                    check_date = today_date + timedelta(days=offset)
+                    check_day = check_date.weekday()
+
+                    # Check override for that date
+                    fut_override_stmt = select(ScheduleOverride).where(
+                        and_(
+                            ScheduleOverride.practice_id == practice_id,
+                            ScheduleOverride.date == check_date,
+                        )
+                    )
+                    fut_override_result = await db.execute(fut_override_stmt)
+                    fut_override = fut_override_result.scalar_one_or_none()
+
+                    if fut_override:
+                        if fut_override.is_working and fut_override.start_time:
+                            next_open = fut_override.start_time.strftime("%H:%M")
+                            next_open_day = DAY_NAMES[check_day]
+                            break
+                        continue  # explicitly closed that day
+
+                    # Check regular template
+                    fut_template_stmt = select(ScheduleTemplate).where(
+                        and_(
+                            ScheduleTemplate.practice_id == practice_id,
+                            ScheduleTemplate.day_of_week == check_day,
+                        )
+                    )
+                    fut_template_result = await db.execute(fut_template_stmt)
+                    fut_template = fut_template_result.scalar_one_or_none()
+
+                    if fut_template and fut_template.is_enabled and fut_template.start_time:
+                        next_open = fut_template.start_time.strftime("%H:%M")
+                        next_open_day = DAY_NAMES[check_day]
+                        break
+
+        # Build regular hours summary from templates
+        schedule_stmt = (
+            select(ScheduleTemplate)
+            .where(
+                and_(
+                    ScheduleTemplate.practice_id == practice_id,
+                    ScheduleTemplate.is_enabled == True,  # noqa: E712
+                )
+            )
+            .order_by(ScheduleTemplate.day_of_week)
+        )
+        schedule_result = await db.execute(schedule_stmt)
+        templates = schedule_result.scalars().all()
+
+        regular_hours = []
+        for t in templates:
+            if t.start_time and t.end_time:
+                regular_hours.append(
+                    f"{DAY_NAMES[t.day_of_week]}: {t.start_time.strftime('%H:%M')} - {t.end_time.strftime('%H:%M')}"
+                )
+
+        result = {
+            "is_open": is_open,
+            "current_day": DAY_NAMES[current_day],
+            "current_time": current_time_val.strftime("%H:%M"),
+            "regular_hours": regular_hours,
+        }
+
+        if today_start and today_end:
+            result["today_hours"] = f"{today_start.strftime('%H:%M')} - {today_end.strftime('%H:%M')}"
+
+        if override_reason:
+            result["closure_reason"] = override_reason
+
+        if next_open and next_open_day:
+            result["next_open"] = f"{next_open_day} at {next_open}"
+
+        return result
+
+    except Exception as e:
+        logger.exception("tool_check_office_hours failed")
+        return {"is_open": True, "error": f"Failed to check office hours: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
+# 12. Leave voicemail
+# ---------------------------------------------------------------------------
+
+async def tool_leave_voicemail(
+    db: AsyncSession,
+    practice_id: UUID,
+    params: dict,
+    vapi_call_id: Optional[str] = None,
+) -> dict:
+    """
+    Record a voicemail message from a caller when the office is closed
+    or staff is unavailable.
+
+    params: {
+        "message": str (required),
+        "caller_name": str (optional),
+        "caller_phone": str (optional),
+        "urgency": str (optional, "normal" or "urgent"),
+        "callback_requested": bool (optional, default True),
+        "preferred_callback_time": str (optional),
+        "reason": str (optional),
+        "patient_id": str (optional uuid)
+    }
+    """
+    try:
+        message_text = params.get("message", "").strip()
+        if not message_text:
+            return {"success": False, "error": "Message is required"}
+
+        caller_name = params.get("caller_name", "").strip() or None
+        caller_phone = params.get("caller_phone", "").strip() or None
+        urgency = params.get("urgency", "normal").strip()
+        if urgency not in ("normal", "urgent", "emergency"):
+            urgency = "normal"
+        callback_requested = params.get("callback_requested", True)
+        preferred_callback_time = params.get("preferred_callback_time", "").strip() or None
+        reason = params.get("reason", "").strip() or None
+
+        # Resolve patient_id if provided
+        patient_id = None
+        if params.get("patient_id"):
+            try:
+                patient_id = UUID(params["patient_id"])
+            except (ValueError, AttributeError):
+                logger.warning("tool_leave_voicemail: Invalid patient_id format")
+
+        # Resolve call_id from vapi_call_id
+        call_id = None
+        if vapi_call_id:
+            from app.models.call import Call
+            call_stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+            call_result = await db.execute(call_stmt)
+            call_record = call_result.scalar_one_or_none()
+            if call_record:
+                call_id = call_record.id
+                # Use caller info from the call record if not provided
+                if not caller_phone and call_record.caller_phone:
+                    caller_phone = call_record.caller_phone
+                if not caller_name and call_record.caller_name:
+                    caller_name = call_record.caller_name
+                # Link patient from call if not provided
+                if not patient_id and call_record.patient_id:
+                    patient_id = call_record.patient_id
+
+        voicemail = Voicemail(
+            practice_id=practice_id,
+            call_id=call_id,
+            patient_id=patient_id,
+            caller_name=caller_name,
+            caller_phone=caller_phone,
+            message=message_text,
+            urgency=urgency,
+            callback_requested=callback_requested,
+            preferred_callback_time=preferred_callback_time,
+            reason=reason,
+            status="new",
+        )
+        db.add(voicemail)
+        await db.flush()
+
+        logger.info(
+            "Voicemail created: id=%s, practice=%s, urgency=%s",
+            voicemail.id, practice_id, urgency,
+        )
+
+        return {
+            "success": True,
+            "voicemail_id": str(voicemail.id),
+            "message": (
+                "Your message has been saved. "
+                "Someone from our office will get back to you when we reopen."
+            ),
+        }
+
+    except Exception as e:
+        logger.exception("tool_leave_voicemail failed")
+        return {"success": False, "error": f"Failed to save voicemail: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
 # Tool Registry and Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -952,7 +1308,10 @@ TOOL_REGISTRY = {
     "verify_insurance": tool_verify_insurance,
     "cancel_appointment": tool_cancel_appointment,
     "reschedule_appointment": tool_reschedule_appointment,
+    "request_refill": tool_request_refill,
     "transfer_to_staff": tool_transfer_to_staff,
+    "check_office_hours": tool_check_office_hours,
+    "leave_voicemail": tool_leave_voicemail,
 }
 
 
