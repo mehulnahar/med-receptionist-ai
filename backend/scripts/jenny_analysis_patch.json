@@ -1,0 +1,121 @@
+{
+  "analysisPlan": {
+    "summaryPlan": {
+      "enabled": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert medical office call analyst. Summarize this phone call in 2-3 sentences. Focus on: who called, what they needed, and the outcome. If an appointment was booked, include the date and time. If the call was transferred, note why. Keep it concise and factual."
+        },
+        {
+          "role": "user",
+          "content": "{{transcript}}"
+        }
+      ]
+    },
+    "structuredDataPlan": {
+      "enabled": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "caller_name": {
+            "type": "string",
+            "description": "Full name of the caller"
+          },
+          "caller_intent": {
+            "type": "string",
+            "enum": ["book_appointment", "cancel_appointment", "reschedule", "prescription_refill", "billing_question", "general_inquiry", "transfer_to_staff", "emergency", "other"],
+            "description": "Primary reason for the call"
+          },
+          "language": {
+            "type": "string",
+            "enum": ["english", "spanish", "other"],
+            "description": "Primary language used during the call"
+          },
+          "is_new_patient": {
+            "type": "boolean",
+            "description": "Whether the caller is a new patient"
+          },
+          "appointment_booked": {
+            "type": "boolean",
+            "description": "Whether an appointment was successfully booked"
+          },
+          "appointment_date": {
+            "type": "string",
+            "description": "Appointment date if booked (YYYY-MM-DD format)"
+          },
+          "appointment_time": {
+            "type": "string",
+            "description": "Appointment time if booked (HH:MM format)"
+          },
+          "appointment_type": {
+            "type": "string",
+            "description": "Type of appointment if booked"
+          },
+          "insurance_carrier": {
+            "type": "string",
+            "description": "Insurance carrier name if mentioned"
+          },
+          "call_transferred": {
+            "type": "boolean",
+            "description": "Whether the call was transferred to staff"
+          },
+          "transfer_reason": {
+            "type": "string",
+            "description": "Reason for transfer if applicable"
+          },
+          "caller_sentiment": {
+            "type": "string",
+            "enum": ["positive", "neutral", "negative", "frustrated"],
+            "description": "Overall caller sentiment"
+          },
+          "follow_up_needed": {
+            "type": "boolean",
+            "description": "Whether any follow-up action is needed"
+          },
+          "follow_up_notes": {
+            "type": "string",
+            "description": "Notes on what follow-up is needed"
+          },
+          "call_successful": {
+            "type": "boolean",
+            "description": "Whether the caller's primary need was resolved"
+          }
+        }
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "Extract structured data from this medical office phone call transcript. Be accurate and only include information explicitly stated or clearly implied in the conversation. If a field is not applicable or not mentioned, omit it."
+        },
+        {
+          "role": "user",
+          "content": "{{transcript}}"
+        }
+      ]
+    },
+    "successEvaluationPlan": {
+      "enabled": true,
+      "rubric": "AutomaticRubric",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Evaluate whether this medical office phone call was successful. A call is successful if the caller's primary need was addressed: appointment booked, question answered, or properly transferred to staff. A call is unsuccessful if the caller hung up frustrated, the AI couldn't help, or the call dropped before resolution."
+        },
+        {
+          "role": "user",
+          "content": "{{transcript}}"
+        }
+      ]
+    }
+  },
+  "artifactPlan": {
+    "recordingEnabled": true,
+    "videoRecordingEnabled": false,
+    "transcriptPlan": {
+      "enabled": true,
+      "assistantName": "Jenny",
+      "userName": "Caller"
+    }
+  }
+}

@@ -27,6 +27,16 @@ const COLOR_MAP = {
     iconText: 'text-purple-600',
     ring: 'ring-purple-50',
   },
+  indigo: {
+    iconBg: 'bg-indigo-100',
+    iconText: 'text-indigo-600',
+    ring: 'ring-indigo-50',
+  },
+  orange: {
+    iconBg: 'bg-orange-100',
+    iconText: 'text-orange-600',
+    ring: 'ring-orange-50',
+  },
 }
 
 const TREND_CONFIG = {
@@ -57,7 +67,7 @@ const TREND_CONFIG = {
  *   icon        - Lucide icon component
  *   trend       - "up" | "down" | "neutral" - direction indicator
  *   trendValue  - Text for the trend badge (e.g. "+15%")
- *   color       - "blue" | "green" | "red" | "yellow" | "purple"
+ *   color       - "blue" | "green" | "red" | "yellow" | "purple" | "indigo" | "orange"
  *   className   - Additional container className
  */
 export default function StatsCard({

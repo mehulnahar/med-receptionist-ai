@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Numeric, ForeignKey, text
+from sqlalchemy import Boolean, Column, String, Integer, Text, DateTime, Numeric, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -30,6 +30,15 @@ class Call(Base):
     vapi_cost = Column(Numeric(10, 4), nullable=True)
     twilio_cost = Column(Numeric(10, 4), nullable=True)
     call_metadata = Column("metadata", JSON, nullable=True)
+    structured_data = Column(JSON, nullable=True)  # Vapi analysisPlan structured extraction
+    success_evaluation = Column(String(20), nullable=True)  # Vapi success eval: "true"/"false"
+    caller_intent = Column(String(50), nullable=True)  # From structured data: book, cancel, etc.
+    caller_sentiment = Column(String(20), nullable=True)  # positive/neutral/negative/frustrated
+    callback_needed = Column(Boolean, default=False, nullable=False, server_default=text("false"))
+    callback_completed = Column(Boolean, default=False, nullable=False, server_default=text("false"))
+    callback_notes = Column(Text, nullable=True)
+    callback_completed_at = Column(DateTime(timezone=True), nullable=True)
+    callback_completed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
     ended_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

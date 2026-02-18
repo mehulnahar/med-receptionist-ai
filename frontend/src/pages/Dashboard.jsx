@@ -11,8 +11,12 @@ import {
   RefreshCw,
   MessageSquare,
   ArrowRight,
+  Phone,
+  PhoneOff,
+  PhoneForwarded,
+  PhoneIncoming,
 } from 'lucide-react'
-import { format, isToday, parseISO } from 'date-fns'
+import { format, isToday, parseISO, formatDistanceToNow } from 'date-fns'
 import clsx from 'clsx'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -108,7 +112,16 @@ export default function Dashboard() {
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
 
+  // Call stats & callbacks state
+  const [callStats, setCallStats] = useState(null)
+  const [callbacks, setCallbacks] = useState([])
+  const [callbacksLoading, setCallbacksLoading] = useState(true)
+
   const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  // ---------------------------------------------------------------------------
+  // Data fetching
+  // ---------------------------------------------------------------------------
 
   /**
    * Fetch today's appointments from the API.
@@ -152,12 +165,82 @@ export default function Dashboard() {
     }
   }, [todayStr])
 
+  /** Fetch call statistics from the webhooks API. */
+  const fetchCallStats = useCallback(async () => {
+    try {
+      const res = await api.get('/webhooks/calls/stats')
+      setCallStats(res.data)
+    } catch (err) {
+      // Silently ignore 401 (auth redirect) and 404 (endpoint not deployed yet)
+      if (err.response?.status !== 401 && err.response?.status !== 404) {
+        console.error('Failed to fetch call stats:', err)
+      }
+    }
+  }, [])
+
+  /** Fetch pending callbacks from the webhooks API. */
+  const fetchCallbacks = useCallback(async () => {
+    setCallbacksLoading(true)
+    try {
+      const res = await api.get('/webhooks/callbacks', { params: { limit: 10 } })
+      setCallbacks(res.data.callbacks || [])
+    } catch (err) {
+      // Silently ignore 401 (auth redirect) and 404 (endpoint not deployed yet)
+      if (err.response?.status !== 401 && err.response?.status !== 404) {
+        console.error('Failed to fetch callbacks:', err)
+      }
+    } finally {
+      setCallbacksLoading(false)
+    }
+  }, [])
+
+  // Initial data load
   useEffect(() => {
     fetchAppointments()
-  }, [fetchAppointments])
+    fetchCallStats()
+    fetchCallbacks()
+  }, [fetchAppointments, fetchCallStats, fetchCallbacks])
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAppointments(true)
+      fetchCallStats()
+      fetchCallbacks()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [fetchAppointments, fetchCallStats, fetchCallbacks])
 
   // ---------------------------------------------------------------------------
-  // Derived stats
+  // Callback completion handler
+  // ---------------------------------------------------------------------------
+
+  const handleCompleteCallback = async (callId) => {
+    try {
+      await api.patch(`/webhooks/calls/${callId}/callback`, {
+        callback_completed: true,
+      })
+      // Remove from list optimistically
+      setCallbacks((prev) => prev.filter((c) => c.id !== callId))
+      // Refresh stats to update pending count
+      fetchCallStats()
+    } catch (err) {
+      console.error('Failed to complete callback:', err)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Refresh all handler (for the Refresh button)
+  // ---------------------------------------------------------------------------
+
+  const handleRefreshAll = () => {
+    fetchAppointments(true)
+    fetchCallStats()
+    fetchCallbacks()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Derived appointment stats
   // ---------------------------------------------------------------------------
 
   const nonCancelledCount = appointments.filter(
@@ -207,7 +290,7 @@ export default function Dashboard() {
         </div>
 
         <button
-          onClick={() => fetchAppointments(true)}
+          onClick={handleRefreshAll}
           disabled={refreshing}
           className={clsx(
             'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium',
@@ -261,7 +344,7 @@ export default function Dashboard() {
       )}
 
       {/* ================================================================
-          STATS CARDS
+          APPOINTMENT STATS CARDS
           ================================================================ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
@@ -297,6 +380,149 @@ export default function Dashboard() {
           subtitle="Cancelled today"
         />
       </div>
+
+      {/* ================================================================
+          CALL STATS CARDS (only render when data is available)
+          ================================================================ */}
+      {callStats && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatsCard
+            title="Calls Today"
+            value={callStats.total_calls_today}
+            icon={Phone}
+            color="indigo"
+            subtitle={`${callStats.total_calls_week} this week`}
+          />
+          <StatsCard
+            title="Missed Calls"
+            value={callStats.missed_calls_today}
+            icon={PhoneOff}
+            color="red"
+            subtitle="Dropped or unanswered"
+          />
+          <StatsCard
+            title="Callbacks Pending"
+            value={callStats.callbacks_pending}
+            icon={PhoneForwarded}
+            color="orange"
+            subtitle="Need follow-up"
+          />
+          <StatsCard
+            title="Avg Duration"
+            value={
+              callStats.avg_duration_seconds > 0
+                ? `${Math.floor(callStats.avg_duration_seconds / 60)}m ${Math.round(callStats.avg_duration_seconds % 60)}s`
+                : '--'
+            }
+            icon={Clock}
+            color="purple"
+            subtitle={
+              callStats.total_cost_today > 0
+                ? `$${callStats.total_cost_today.toFixed(2)} today`
+                : 'No calls yet'
+            }
+          />
+        </div>
+      )}
+
+      {/* ================================================================
+          CALLBACKS NEEDED
+          ================================================================ */}
+      {callbacks.length > 0 && (
+        <div className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
+          {/* Section header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-orange-100 bg-orange-50/50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                <PhoneForwarded className="w-4 h-4 text-orange-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">
+                  Callbacks Needed
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {callbacks.length} call{callbacks.length === 1 ? '' : 's'}{' '}
+                  need{callbacks.length === 1 ? 's' : ''} follow-up
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/calls?filter=callbacks"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-orange-600 hover:text-orange-700 transition-colors"
+            >
+              View all
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          {/* Callback list */}
+          <div className="divide-y divide-gray-100">
+            {callbacks.map((cb) => (
+              <div
+                key={cb.id}
+                className="flex items-center justify-between px-5 py-3.5 hover:bg-orange-50/30 transition-colors"
+              >
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                    <PhoneIncoming className="w-5 h-5 text-orange-600" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {cb.caller_name || 'Unknown Caller'}
+                      </p>
+                      {cb.ended_reason && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20">
+                          {cb.ended_reason
+                            .replace(/-/g, ' ')
+                            .replace(/\b\w/g, (c) => c.toUpperCase())}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <span className="text-xs text-gray-500">
+                        {cb.caller_number || cb.caller_phone || 'No number'}
+                      </span>
+                      {cb.started_at && (
+                        <span className="text-xs text-gray-400">
+                          {formatDistanceToNow(parseISO(cb.started_at), {
+                            addSuffix: true,
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    {cb.summary && (
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-1">
+                        {cb.summary}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                  {(cb.caller_number || cb.caller_phone) && (
+                    <a
+                      href={`tel:${cb.caller_number || cb.caller_phone}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 ring-1 ring-inset ring-green-600/20 transition-colors"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      Call
+                    </a>
+                  )}
+                  <button
+                    onClick={() => handleCompleteCallback(cb.id)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 ring-1 ring-inset ring-gray-300 transition-colors"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Done
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ================================================================
           TODAY'S APPOINTMENTS TABLE

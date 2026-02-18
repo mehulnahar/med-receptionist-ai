@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     VAPI_API_KEY: str = ""
     VAPI_WEBHOOK_SECRET: str = ""
     STEDI_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
     APP_URL: str = "http://localhost:8000"
 
     model_config = {"env_file": "../.env", "env_file_encoding": "utf-8", "extra": "ignore"}

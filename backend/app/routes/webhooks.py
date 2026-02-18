@@ -36,7 +36,7 @@ from app.models.call import Call
 from app.models.patient import Patient
 from app.models.user import User
 from app.middleware.auth import require_any_staff
-from app.schemas.call import CallResponse, CallListResponse
+from app.schemas.call import CallResponse, CallListResponse, CallbackUpdateRequest, CallbackListResponse, CallStatsResponse
 from app.schemas.vapi import (
     VapiWebhookRequest,
     VapiToolCallResponse,
@@ -53,6 +53,18 @@ from app.services.vapi_tools import dispatch_tool_call
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def _run_feedback_analysis(call_id: UUID, practice_id: UUID):
+    """Run feedback analysis in background with its own DB session."""
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services.feedback_service import process_call_feedback
+
+        async with AsyncSessionLocal() as db:
+            await process_call_feedback(db, call_id, practice_id)
+    except Exception as e:
+        logger.warning("background feedback analysis failed for call %s: %s", call_id, e)
 
 
 # ---------------------------------------------------------------------------
@@ -608,9 +620,19 @@ async def _handle_end_of_call_report(
             or _safe_get(artifact, "recording", "url")
         )
 
-        # Extract summary from analysis
+        # Extract summary and structured data from analysis
         analysis = _safe_get(body, "message", "analysis") or {}
         summary = analysis.get("summary")
+        structured_data = analysis.get("structuredData")
+        success_evaluation = analysis.get("successEvaluation")
+
+        logger.info(
+            "vapi_webhook: analysis data for call %s: summary=%s, structured=%s, success=%s",
+            vapi_call_id,
+            bool(summary),
+            bool(structured_data),
+            success_evaluation,
+        )
 
         # Ended reason
         ended_reason = (
@@ -660,6 +682,72 @@ async def _handle_end_of_call_report(
             cost=cost,
             ended_reason=ended_reason,
         )
+
+        # Save structured analysis data if available
+        if structured_data or success_evaluation:
+            try:
+                stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+                result = await db.execute(stmt)
+                call_record = result.scalar_one_or_none()
+                if call_record:
+                    if structured_data and isinstance(structured_data, dict):
+                        call_record.structured_data = structured_data
+                        # Extract key fields for quick filtering
+                        if structured_data.get("caller_intent"):
+                            call_record.caller_intent = structured_data["caller_intent"]
+                        if structured_data.get("caller_sentiment"):
+                            call_record.caller_sentiment = structured_data["caller_sentiment"]
+                        if structured_data.get("language"):
+                            lang_map = {"english": "en", "spanish": "es"}
+                            call_record.language = lang_map.get(
+                                structured_data["language"], structured_data["language"][:5]
+                            )
+                    if success_evaluation is not None:
+                        call_record.success_evaluation = str(success_evaluation)
+                    await db.flush()
+                    logger.info(
+                        "vapi_webhook: saved structured analysis for call %s (intent=%s, sentiment=%s)",
+                        vapi_call_id,
+                        structured_data.get("caller_intent") if structured_data else None,
+                        structured_data.get("caller_sentiment") if structured_data else None,
+                    )
+            except Exception as e:
+                logger.warning("vapi_webhook: failed to save structured data: %s", e)
+
+        # Auto-flag for callback if call was dropped/missed and we have caller info
+        CALLBACK_REASONS = {
+            'customer-did-not-answer', 'customer-busy',
+            'assistant-error', 'phone-call-provider-closed-websocket',
+            'assistant-forwarded-call', 'voicemail',
+        }
+        if ended_reason in CALLBACK_REASONS or (duration is not None and duration < 15):
+            # Flag for callback if we have some caller info
+            try:
+                stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+                result = await db.execute(stmt)
+                call = result.scalar_one_or_none()
+                if call and (call.caller_name or call.caller_phone):
+                    call.callback_needed = True
+                    await db.flush()
+                    logger.info("vapi_webhook: flagged call %s for callback (reason=%s)", vapi_call_id, ended_reason)
+            except Exception as e:
+                logger.warning("vapi_webhook: failed to flag callback: %s", e)
+
+        # Trigger self-improving feedback loop (non-blocking)
+        try:
+            # Get the call record to pass its ID
+            stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+            result = await db.execute(stmt)
+            call_for_feedback = result.scalar_one_or_none()
+            if call_for_feedback:
+                import asyncio
+                from app.services.feedback_service import process_call_feedback
+                # Run feedback analysis in background (don't block webhook response)
+                asyncio.create_task(
+                    _run_feedback_analysis(call_for_feedback.id, call_for_feedback.practice_id)
+                )
+        except Exception as e:
+            logger.warning("vapi_webhook: failed to trigger feedback loop: %s", e)
 
     except Exception as e:
         logger.exception(
@@ -795,7 +883,177 @@ async def list_calls(
                 cost=call.vapi_cost,
                 recording_url=call.recording_url,
                 created_at=call.created_at,
+                ended_reason=call.outcome,
+                callback_needed=call.callback_needed if hasattr(call, 'callback_needed') else False,
+                callback_completed=call.callback_completed if hasattr(call, 'callback_completed') else False,
+                callback_notes=call.callback_notes if hasattr(call, 'callback_notes') else None,
+                callback_completed_at=call.callback_completed_at if hasattr(call, 'callback_completed_at') else None,
+                structured_data=call.structured_data if hasattr(call, 'structured_data') else None,
+                caller_intent=call.caller_intent if hasattr(call, 'caller_intent') else None,
+                caller_sentiment=call.caller_sentiment if hasattr(call, 'caller_sentiment') else None,
+                success_evaluation=call.success_evaluation if hasattr(call, 'success_evaluation') else None,
+                language=call.language,
             )
         )
 
     return CallListResponse(calls=calls, total=total)
+
+
+# ---------------------------------------------------------------------------
+# Callback management endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/callbacks", response_model=CallbackListResponse)
+async def list_callbacks(
+    include_completed: bool = Query(False, description="Include already completed callbacks"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(require_any_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """List calls that need callbacks (missed/dropped calls with caller info)."""
+    practice_id = _ensure_practice(current_user)
+
+    filters = [
+        Call.practice_id == practice_id,
+        Call.callback_needed == True,
+    ]
+    if not include_completed:
+        filters.append(Call.callback_completed == False)
+
+    # Count
+    count_query = select(func.count(Call.id)).where(*filters)
+    total = (await db.execute(count_query)).scalar_one()
+
+    # Query with patient join
+    PatientAlias = aliased(Patient)
+    query = (
+        select(Call, func.concat(PatientAlias.first_name, " ", PatientAlias.last_name).label("patient_name"))
+        .outerjoin(PatientAlias, Call.patient_id == PatientAlias.id)
+        .where(*filters)
+        .order_by(func.coalesce(Call.started_at, Call.created_at).desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await db.execute(query)).all()
+
+    callbacks = []
+    for row in rows:
+        call = row[0]
+        patient_name = row[1] if call.patient_id else None
+        callbacks.append(CallResponse(
+            id=call.id,
+            vapi_call_id=call.vapi_call_id,
+            direction=call.direction,
+            caller_number=call.caller_phone,
+            caller_name=call.caller_name,
+            status=call.status,
+            duration_seconds=call.duration_seconds,
+            patient_id=call.patient_id,
+            patient_name=patient_name,
+            started_at=call.started_at,
+            ended_at=call.ended_at,
+            transcript=call.transcription,
+            summary=call.ai_summary,
+            cost=call.vapi_cost,
+            recording_url=call.recording_url,
+            created_at=call.created_at,
+            ended_reason=call.outcome,
+            callback_needed=call.callback_needed,
+            callback_completed=call.callback_completed,
+            callback_notes=call.callback_notes,
+            callback_completed_at=call.callback_completed_at,
+        ))
+
+    return CallbackListResponse(callbacks=callbacks, total=total)
+
+
+@router.patch("/calls/{call_id}/callback")
+async def update_callback(
+    call_id: UUID,
+    request: CallbackUpdateRequest,
+    current_user: User = Depends(require_any_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a callback as completed or add notes."""
+    practice_id = _ensure_practice(current_user)
+
+    result = await db.execute(
+        select(Call).where(Call.id == call_id, Call.practice_id == practice_id)
+    )
+    call = result.scalar_one_or_none()
+
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+
+    if request.callback_completed is not None:
+        call.callback_completed = request.callback_completed
+        if request.callback_completed:
+            call.callback_completed_at = datetime.now(timezone.utc)
+            call.callback_completed_by = current_user.id
+        else:
+            call.callback_completed_at = None
+            call.callback_completed_by = None
+
+    if request.callback_notes is not None:
+        call.callback_notes = request.callback_notes
+
+    await db.commit()
+    await db.refresh(call)
+
+    return {"status": "ok", "callback_completed": call.callback_completed}
+
+
+@router.get("/calls/stats", response_model=CallStatsResponse)
+async def get_call_stats(
+    current_user: User = Depends(require_any_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get call statistics for the dashboard."""
+    practice_id = _ensure_practice(current_user)
+
+    from datetime import timedelta
+
+    today_start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    today_end = datetime.combine(date.today(), datetime.max.time(), tzinfo=timezone.utc)
+    week_start = datetime.combine(date.today() - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
+
+    base = [Call.practice_id == practice_id]
+    today_filter = base + [func.coalesce(Call.started_at, Call.created_at) >= today_start, func.coalesce(Call.started_at, Call.created_at) <= today_end]
+    week_filter = base + [func.coalesce(Call.started_at, Call.created_at) >= week_start]
+
+    # Total calls today
+    total_today = (await db.execute(select(func.count(Call.id)).where(*today_filter))).scalar_one()
+
+    # Missed calls today (ended_reason indicates customer/assistant hung up prematurely)
+    missed_reasons = ['customer-did-not-answer', 'customer-busy', 'customer-ended-call', 'assistant-error', 'phone-call-provider-closed-websocket']
+    missed_today = (await db.execute(
+        select(func.count(Call.id)).where(*today_filter, Call.outcome.in_(missed_reasons))
+    )).scalar_one()
+
+    # Average duration today
+    avg_dur = (await db.execute(
+        select(func.avg(Call.duration_seconds)).where(*today_filter, Call.duration_seconds.isnot(None))
+    )).scalar_one()
+
+    # Pending callbacks
+    callbacks_pending = (await db.execute(
+        select(func.count(Call.id)).where(*base, Call.callback_needed == True, Call.callback_completed == False)
+    )).scalar_one()
+
+    # Total calls this week
+    total_week = (await db.execute(select(func.count(Call.id)).where(*week_filter))).scalar_one()
+
+    # Total cost today
+    total_cost = (await db.execute(
+        select(func.sum(Call.vapi_cost)).where(*today_filter)
+    )).scalar_one()
+
+    return CallStatsResponse(
+        total_calls_today=total_today,
+        missed_calls_today=missed_today,
+        avg_duration_seconds=int(avg_dur or 0),
+        callbacks_pending=callbacks_pending,
+        total_calls_week=total_week,
+        total_cost_today=float(total_cost or 0),
+    )

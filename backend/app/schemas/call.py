@@ -28,6 +28,16 @@ class CallResponse(BaseModel):
     cost: Decimal | None = None  # mapped from Call.vapi_cost
     recording_url: str | None = None
     created_at: datetime
+    ended_reason: str | None = None  # mapped from Call.outcome
+    callback_needed: bool = False
+    callback_completed: bool = False
+    callback_notes: str | None = None
+    callback_completed_at: datetime | None = None
+    structured_data: dict | None = None  # Vapi structured analysis
+    caller_intent: str | None = None  # From structured data
+    caller_sentiment: str | None = None  # From structured data
+    success_evaluation: str | None = None  # Vapi success eval
+    language: str | None = None  # Detected language (en/es)
 
 
 class CallListResponse(BaseModel):
@@ -35,3 +45,25 @@ class CallListResponse(BaseModel):
 
     calls: list[CallResponse]
     total: int
+
+
+class CallbackUpdateRequest(BaseModel):
+    """Request to update callback status on a call."""
+    callback_completed: bool | None = None
+    callback_notes: str | None = None
+
+
+class CallbackListResponse(BaseModel):
+    """Response for callback list endpoint."""
+    callbacks: list[CallResponse]
+    total: int
+
+
+class CallStatsResponse(BaseModel):
+    """Dashboard call statistics."""
+    total_calls_today: int = 0
+    missed_calls_today: int = 0
+    avg_duration_seconds: int = 0
+    callbacks_pending: int = 0
+    total_calls_week: int = 0
+    total_cost_today: float = 0.0

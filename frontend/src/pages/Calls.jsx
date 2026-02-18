@@ -306,6 +306,20 @@ function CallDetail({ call }) {
                           : '--'}
                       </p>
                     </div>
+                    {call.ended_reason && (
+                      <div className="col-span-2">
+                        <p className="text-xs text-gray-500 mb-0.5">End Reason</p>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-300">
+                          {call.ended_reason.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                        </span>
+                      </div>
+                    )}
+                    {call.caller_name && (
+                      <div className="col-span-2">
+                        <p className="text-xs text-gray-500 mb-0.5">Caller Name</p>
+                        <p className="text-sm font-medium text-gray-900">{call.caller_name}</p>
+                      </div>
+                    )}
                   </div>
                   {call.vapi_call_id && (
                     <div className="mt-3 pt-3 border-t border-gray-100">
@@ -674,7 +688,7 @@ export default function Calls() {
                       Caller Number
                     </th>
                     <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">
-                      Patient
+                      Caller / Patient
                     </th>
                     <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">
                       Duration
@@ -744,15 +758,22 @@ export default function Calls() {
                             </span>
                           </td>
 
-                          {/* Patient */}
+                          {/* Caller / Patient */}
                           <td className="px-5 py-3.5 whitespace-nowrap">
-                            <span className="text-sm font-medium text-gray-900">
-                              {call.patient_name || (
-                                <span className="text-gray-400 font-normal">
-                                  Unidentified
-                                </span>
+                            <div>
+                              <span className="text-sm font-medium text-gray-900">
+                                {call.caller_name || call.patient_name || (
+                                  <span className="text-gray-400 font-normal">
+                                    Unidentified
+                                  </span>
+                                )}
+                              </span>
+                              {call.caller_name && call.patient_name && call.caller_name !== call.patient_name && (
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  Patient: {call.patient_name}
+                                </p>
                               )}
-                            </span>
+                            </div>
                           </td>
 
                           {/* Duration */}
