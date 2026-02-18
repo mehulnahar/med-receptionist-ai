@@ -1,13 +1,30 @@
+import logging
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run seed on startup (idempotent)."""
+    try:
+        from app.seed import seed_database
+        await seed_database()
+    except Exception as exc:
+        logger.warning("Seed skipped or failed: %s", exc)
+    yield
+
 
 app = FastAPI(
     title="AI Medical Receptionist API",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
