@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # Rate limiting (requests per minute per IP)
     RATE_LIMIT_GENERAL: int = 100
-    RATE_LIMIT_AUTH: int = 10
+    RATE_LIMIT_AUTH: int = 20
     RATE_LIMIT_WEBHOOKS: int = 200
 
     model_config = {"env_file": "../.env", "env_file_encoding": "utf-8", "extra": "ignore"}
