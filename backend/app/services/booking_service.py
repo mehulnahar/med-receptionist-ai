@@ -387,8 +387,13 @@ async def book_appointment(
     Create a new appointment after validating the type and slot availability.
 
     Raises ValueError if validation fails (wrong practice, inactive type,
-    slot not available).
+    slot not available, past date).
     """
+    # Reject past dates
+    from datetime import date as date_cls
+    if appt_date < date_cls.today():
+        raise ValueError("Cannot book appointments in the past")
+
     # Validate appointment type exists and belongs to this practice
     appt_type_stmt = (
         select(AppointmentType)

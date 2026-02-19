@@ -266,6 +266,7 @@ async def update_waitlist_entry(
         entry.preferred_time_end = request.preferred_time_end
 
     await db.flush()
+    await db.refresh(entry)
 
     return WaitlistEntryResponse.model_validate(entry)
 
