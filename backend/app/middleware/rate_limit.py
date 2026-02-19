@@ -54,8 +54,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return request.client.host if request.client else "unknown"
 
     def _get_limit_for_path(self, path: str) -> int:
-        """Return the per-minute rate limit based on the request path."""
+        """Return the per-minute rate limit based on the request path.
+
+        /api/auth/me is a read-only session check called on every page load,
+        so it uses the general (100/min) limit instead of the strict auth
+        (10/min) limit reserved for login/register/password-reset endpoints.
+        """
         if path.startswith("/api/auth"):
+            # Read-only profile endpoint — treat like a normal API call
+            if path in ("/api/auth/me", "/api/auth/me/"):
+                return settings.RATE_LIMIT_GENERAL
             return settings.RATE_LIMIT_AUTH
         if path.startswith("/api/webhooks"):
             return settings.RATE_LIMIT_WEBHOOKS
