@@ -13,6 +13,7 @@ from app.models.audit_log import AuditLog
 from app.models.refill_request import RefillRequest
 from app.models.reminder import AppointmentReminder
 from app.models.waitlist import WaitlistEntry
+from app.models.training import TrainingSession, TrainingRecording
 
 __all__ = [
     "Practice",
@@ -31,4 +32,6 @@ __all__ = [
     "RefillRequest",
     "AppointmentReminder",
     "WaitlistEntry",
+    "TrainingSession",
+    "TrainingRecording",
 ]

@@ -13,6 +13,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  GraduationCap,
+  Wrench,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../contexts/AuthContext'
@@ -23,6 +25,18 @@ const NAV_ITEMS = [
   { label: 'Patients', path: '/patients', icon: Users },
   { label: 'Call Log', path: '/calls', icon: Phone },
   { label: 'Analytics', path: '/analytics', icon: BarChart3 },
+  {
+    label: 'Training',
+    path: '/training',
+    icon: GraduationCap,
+    roles: ['practice_admin', 'super_admin'],
+  },
+  {
+    label: 'Setup',
+    path: '/onboarding',
+    icon: Wrench,
+    roles: ['practice_admin', 'super_admin'],
+  },
   {
     label: 'Settings',
     path: '/settings',
@@ -81,8 +95,17 @@ export default function Layout() {
   }, [])
 
   const displayName = user
-    ? [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
+    ? (user.name || [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email)
     : 'User'
+
+  // Derive avatar initials safely from whatever name format is available
+  const avatarInitial = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || 'U'
 
   const filteredNav = NAV_ITEMS.filter((item) => {
     if (!item.roles) return true
@@ -185,7 +208,7 @@ export default function Layout() {
         <div className="border-t border-slate-800 p-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white text-xs font-bold uppercase">
-              {user?.first_name?.[0] || user?.email?.[0] || 'U'}
+              {avatarInitial}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-white truncate">{displayName}</p>
@@ -256,7 +279,7 @@ export default function Layout() {
           {collapsed ? (
             <div className="flex flex-col items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white text-xs font-bold uppercase">
-                {user?.first_name?.[0] || user?.email?.[0] || 'U'}
+                {avatarInitial}
               </div>
               <button
                 onClick={logout}
@@ -270,7 +293,7 @@ export default function Layout() {
             <>
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white text-xs font-bold uppercase flex-shrink-0">
-                  {user?.first_name?.[0] || user?.email?.[0] || 'U'}
+                  {avatarInitial}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white truncate">{displayName}</p>

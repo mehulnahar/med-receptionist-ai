@@ -21,6 +21,8 @@ const Settings = lazy(() => import('./pages/Settings'))
 const Calls = lazy(() => import('./pages/Calls'))
 const Analytics = lazy(() => import('./pages/Analytics'))
 const Admin = lazy(() => import('./pages/Admin'))
+const Training = lazy(() => import('./pages/Training'))
+const Onboarding = lazy(() => import('./pages/Onboarding'))
 
 function App() {
   return (
@@ -57,6 +59,22 @@ function App() {
                 element={
                   <ProtectedRoute roles={['super_admin']}>
                     <Admin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="training"
+                element={
+                  <ProtectedRoute roles={['practice_admin', 'super_admin']}>
+                    <Training />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="onboarding"
+                element={
+                  <ProtectedRoute roles={['practice_admin', 'super_admin']}>
+                    <Onboarding />
                   </ProtectedRoute>
                 }
               />

@@ -1,3 +1,4 @@
+import contextvars
 import logging
 import time
 import traceback
@@ -16,6 +17,22 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 _is_production = settings.APP_ENV == "production"
+
+# ---------------------------------------------------------------------------
+# Request ID context — propagated into every log record automatically
+# ---------------------------------------------------------------------------
+request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+
+
+class _RequestIdFilter(logging.Filter):
+    """Inject the current request ID into every log record."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_ctx.get("-")
+        return True
+
+
+# Attach the filter to the root logger so ALL loggers inherit it
+logging.getLogger().addFilter(_RequestIdFilter())
 
 # Background task health tracking — updated by each loop iteration
 _background_health: dict[str, float] = {}
@@ -209,7 +226,8 @@ async def _run_startup_migrations():
                     status VARCHAR(20) DEFAULT 'new',
                     responded_by UUID REFERENCES users(id),
                     responded_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """))
             await session.commit()
@@ -256,6 +274,58 @@ async def _run_startup_migrations():
         except Exception as e:
             await session.rollback()
             logger.warning("startup_migrations: reminder unique constraint skipped: %s", e)
+
+        # Create training_sessions and training_recordings tables
+        try:
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS training_sessions (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    practice_id UUID NOT NULL REFERENCES practices(id) ON DELETE CASCADE,
+                    name VARCHAR(200),
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    total_recordings INTEGER NOT NULL DEFAULT 0,
+                    processed_count INTEGER NOT NULL DEFAULT 0,
+                    aggregated_insights JSONB,
+                    generated_prompt TEXT,
+                    current_prompt_snapshot TEXT,
+                    created_by UUID REFERENCES users(id),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    completed_at TIMESTAMPTZ
+                )
+            """))
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS training_recordings (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    practice_id UUID NOT NULL REFERENCES practices(id) ON DELETE CASCADE,
+                    session_id UUID NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
+                    original_filename VARCHAR(255) NOT NULL,
+                    file_size_bytes INTEGER,
+                    mime_type VARCHAR(50),
+                    status VARCHAR(20) NOT NULL DEFAULT 'uploaded',
+                    transcript TEXT,
+                    language_detected VARCHAR(10),
+                    duration_seconds FLOAT,
+                    analysis JSONB,
+                    error_message TEXT,
+                    uploaded_by UUID REFERENCES users(id),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            await session.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_training_sessions_practice ON training_sessions(practice_id)"
+            ))
+            await session.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_training_recordings_session ON training_recordings(session_id)"
+            ))
+            await session.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_training_recordings_practice ON training_recordings(practice_id)"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: training tables ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: training tables migration skipped: %s", e)
 
         # Create waitlist_entries table
         try:
@@ -321,7 +391,8 @@ async def _reminder_check_loop():
 
                 try:
                     sent = await process_pending_reminders(db)
-                    await db.commit()
+                    # Each reminder is committed individually inside process_pending_reminders
+                    # to prevent batch rollback causing duplicate SMS sends.
                     if sent > 0:
                         logger.info("reminder_check_loop: sent %d reminders", sent)
                 finally:
@@ -395,7 +466,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Error disposing database engine: %s", exc)
 
-    # 3. Clear in-memory caches
+    # 3. Close shared HTTP client
+    try:
+        from app.utils.http_client import close_http_client
+        await close_http_client()
+        logger.info("Shared HTTP client closed")
+    except Exception as exc:
+        logger.warning("Error closing HTTP client: %s", exc)
+
+    # 4. Clear in-memory caches
     try:
         from app.utils.cache import practice_config_cache
         practice_config_cache.clear()
@@ -455,13 +534,47 @@ MAX_BODY_BYTES = 5 * 1024 * 1024  # 5 MB
 
 @app.middleware("http")
 async def _limit_request_body(request: Request, call_next):
-    """Reject oversized request bodies to prevent OOM from malicious payloads."""
+    """Reject oversized request bodies to prevent OOM from malicious payloads.
+
+    Checks both the Content-Length header (fast path) and, for chunked
+    transfers that omit Content-Length, reads the body and checks actual
+    size.  GET/HEAD/OPTIONS/DELETE requests are skipped since they
+    typically carry no body.
+    """
+    # Skip methods that shouldn't carry a body
+    if request.method in ("GET", "HEAD", "OPTIONS", "DELETE"):
+        return await call_next(request)
+
+    # Allow larger uploads for training recordings (30 MB)
+    path = request.url.path
+    if "/training/" in path and path.endswith("/upload"):
+        limit = 30 * 1024 * 1024  # 30 MB for audio uploads
+    else:
+        limit = MAX_BODY_BYTES
+
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > MAX_BODY_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={"detail": "Request body too large"},
-        )
+    if content_length:
+        try:
+            if int(content_length) > limit:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body too large"},
+                )
+        except (ValueError, TypeError):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Invalid Content-Length header"},
+            )
+    else:
+        # No Content-Length — likely chunked transfer encoding.
+        # Read the actual body to enforce the limit.
+        body = await request.body()
+        if len(body) > limit:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large"},
+            )
+
     return await call_next(request)
 
 # ---------------------------------------------------------------------------
@@ -470,12 +583,20 @@ async def _limit_request_body(request: Request, call_next):
 # ---------------------------------------------------------------------------
 @app.middleware("http")
 async def _request_id(request: Request, call_next):
-    """Attach a unique X-Request-ID to every response for distributed tracing."""
-    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-    request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
+    """Attach a unique X-Request-ID to every response for distributed tracing.
+
+    Also sets the request_id contextvar so all log records within this
+    request automatically include the ID (via _RequestIdFilter).
+    """
+    rid = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = rid
+    token = request_id_ctx.set(rid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        request_id_ctx.reset(token)
 
 # ---------------------------------------------------------------------------
 # Route blueprints
@@ -498,6 +619,8 @@ from app.routes.voicemails import router as voicemails_router
 from app.routes.reminders import router as reminders_router
 from app.routes.waitlist import router as waitlist_router
 from app.routes.analytics import router as analytics_router
+from app.routes.training import router as training_router
+from app.routes.onboarding import router as onboarding_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
@@ -517,6 +640,8 @@ app.include_router(voicemails_router, prefix="/api/voicemails", tags=["Voicemail
 app.include_router(reminders_router, prefix="/api/reminders", tags=["Appointment Reminders"])
 app.include_router(waitlist_router, prefix="/api/waitlist", tags=["Waitlist"])
 app.include_router(analytics_router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(training_router, prefix="/api/training", tags=["Training Pipeline"])
+app.include_router(onboarding_router, prefix="/api/practice/onboarding", tags=["Onboarding"])
 
 
 @app.post("/api/client-errors", status_code=204)
