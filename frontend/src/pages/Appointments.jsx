@@ -45,6 +45,8 @@ const STATUS_OPTIONS = [
   { value: 'confirmed', label: 'Confirmed' },
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'completed', label: 'Completed' },
+  { value: 'no_show', label: 'No Show' },
+  { value: 'entered_in_ehr', label: 'In EHR' },
 ]
 
 const STATUS_CONFIG = {
@@ -75,6 +77,20 @@ const STATUS_CONFIG = {
     text: 'text-blue-700',
     ring: 'ring-blue-600/20',
     dot: 'bg-blue-500',
+  },
+  no_show: {
+    label: 'No Show',
+    bg: 'bg-orange-50',
+    text: 'text-orange-700',
+    ring: 'ring-orange-600/20',
+    dot: 'bg-orange-500',
+  },
+  entered_in_ehr: {
+    label: 'In EHR',
+    bg: 'bg-purple-50',
+    text: 'text-purple-700',
+    ring: 'ring-purple-600/20',
+    dot: 'bg-purple-500',
   },
 }
 
@@ -283,11 +299,12 @@ function BookAppointmentModal({ onClose, onBooked }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="book-appointment-title">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Dialog */}
@@ -299,7 +316,7 @@ function BookAppointmentModal({ onClose, onBooked }) {
               <CalendarPlus className="w-5 h-5 text-primary-600" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 id="book-appointment-title" className="text-lg font-semibold text-gray-900">
                 Book Appointment
               </h2>
               <p className="text-sm text-gray-500">
@@ -559,11 +576,12 @@ function CancelDialog({ appointment, onClose, onCancelled }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="cancel-appointment-title">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Dialog */}
@@ -574,7 +592,7 @@ function CancelDialog({ appointment, onClose, onCancelled }) {
             <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
               <XCircle className="w-5 h-5 text-red-600" />
             </div>
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 id="cancel-appointment-title" className="text-lg font-semibold text-gray-900">
               Cancel Appointment
             </h2>
           </div>

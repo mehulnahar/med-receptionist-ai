@@ -4,6 +4,7 @@ conversion, call outcomes, appointment types, and combined overview."""
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_, case, extract, cast, Date
@@ -78,14 +79,20 @@ def _default_date_range(
     return start, end
 
 
-def _ensure_practice(user: User):
-    """Return the user's practice_id or raise 400."""
-    if not user.practice_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No practice associated with this user",
-        )
-    return user.practice_id
+def _ensure_practice(user: User, practice_id_override: UUID | None = None):
+    """Return the user's practice_id or raise 400.
+
+    Super admins may pass an explicit ``practice_id`` query parameter
+    to view analytics for any practice.
+    """
+    if user.role == "super_admin" and practice_id_override:
+        return practice_id_override
+    if user.practice_id:
+        return user.practice_id
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="No practice associated with this user. Super admins must pass ?practice_id=<uuid>.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -97,11 +104,12 @@ def _ensure_practice(user: User):
 async def get_call_volume(
     from_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    practice_id_param: Optional[UUID] = Query(None, alias="practice_id", description="Practice ID (super admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Daily call volumes for the requested date range (default last 30 days)."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id_param)
     start, end = _default_date_range(from_date, to_date)
 
     call_date = cast(Call.started_at, Date).label("call_date")
@@ -166,11 +174,12 @@ async def get_call_volume(
 async def get_peak_hours(
     from_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    practice_id_param: Optional[UUID] = Query(None, alias="practice_id", description="Practice ID (super admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Call counts by hour of day (0-23) for a date range."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id_param)
     start, end = _default_date_range(from_date, to_date)
 
     hour_col = extract("hour", Call.started_at).label("hour")
@@ -180,6 +189,7 @@ async def get_peak_hours(
         .where(
             and_(
                 Call.practice_id == practice_id,
+                Call.started_at.isnot(None),
                 cast(Call.started_at, Date) >= start,
                 cast(Call.started_at, Date) <= end,
             )
@@ -213,11 +223,12 @@ async def get_peak_hours(
 async def get_booking_conversion(
     from_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    practice_id_param: Optional[UUID] = Query(None, alias="practice_id", description="Practice ID (super admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Booking conversion funnel data."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id_param)
     start, end = _default_date_range(from_date, to_date)
 
     # Total calls in range
@@ -326,11 +337,12 @@ async def get_booking_conversion(
 async def get_call_outcomes(
     from_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    practice_id_param: Optional[UUID] = Query(None, alias="practice_id", description="Practice ID (super admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Breakdown of call intents, sentiments, outcomes, and languages."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id_param)
     start, end = _default_date_range(from_date, to_date)
 
     base_filter = and_(
@@ -383,11 +395,12 @@ async def get_call_outcomes(
 async def get_appointment_type_stats(
     from_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    practice_id_param: Optional[UUID] = Query(None, alias="practice_id", description="Practice ID (super admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Appointment type distribution for a date range."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id_param)
     start, end = _default_date_range(from_date, to_date)
 
     stmt = (
@@ -442,11 +455,12 @@ async def get_overview(
         description="Time period: today, week, or month",
         pattern="^(today|week|month)$",
     ),
+    practice_id_param: Optional[UUID] = Query(None, alias="practice_id", description="Practice ID (super admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Combined overview for the dashboard header."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id_param)
 
     if period not in VALID_PERIODS:
         raise HTTPException(

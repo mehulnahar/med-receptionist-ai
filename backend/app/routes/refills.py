@@ -8,7 +8,7 @@ Provides endpoints for:
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -59,7 +59,7 @@ class RefillListResponse(BaseModel):
 
 
 class UpdateStatusRequest(BaseModel):
-    status: str  # in_review, approved, denied, completed
+    status: Literal["pending", "in_review", "approved", "denied", "completed"]
     notes: str | None = Field(None, max_length=2000)
 
 
@@ -183,10 +183,18 @@ async def update_refill_status(
         raise HTTPException(status_code=404, detail="Refill request not found")
 
     refill.status = request.status
-    refill.reviewed_by = current_user.id
-    refill.reviewed_at = datetime.now(timezone.utc)
 
-    if request.notes:
+    # Only set review attribution for actual review actions
+    REVIEW_STATUSES = {"approved", "denied", "completed"}
+    if request.status in REVIEW_STATUSES:
+        refill.reviewed_by = current_user.id
+        refill.reviewed_at = datetime.now(timezone.utc)
+    elif request.status == "pending":
+        # Re-opening clears the review attribution
+        refill.reviewed_by = None
+        refill.reviewed_at = None
+
+    if request.notes is not None:
         refill.notes = request.notes
 
     await db.flush()

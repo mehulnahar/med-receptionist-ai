@@ -49,7 +49,7 @@ class PracticeConfigResponse(BaseModel):
     insurance_verification_on_call: bool = True
 
     # Mask sensitive credentials in API responses
-    @field_serializer("twilio_auth_token", "vapi_api_key", "stedi_api_key")
+    @field_serializer("twilio_account_sid", "twilio_auth_token", "vapi_api_key", "stedi_api_key")
     @classmethod
     def mask_secrets(cls, v: str | None) -> str | None:
         return _mask_secret(v)
@@ -150,9 +150,19 @@ class PracticeConfigUpdate(BaseModel):
     fallback_message: str | None = None
     max_retries: int | None = Field(None, ge=1, le=10)
 
-    @field_validator("transfer_number")
+    @field_validator("twilio_account_sid", "twilio_auth_token", "vapi_api_key", "stedi_api_key")
     @classmethod
-    def validate_transfer_number(cls, v: str | None) -> str | None:
+    def reject_masked_secrets(cls, v: str | None) -> str | None:
+        """Reject masked placeholder values that the frontend echoes back (e.g. '****abcd')."""
+        if v is not None and v.startswith("*"):
+            raise ValueError(
+                "Cannot save a masked credential. Provide the full value or omit the field."
+            )
+        return v
+
+    @field_validator("transfer_number", "vonage_forwarding_number", "twilio_phone_number")
+    @classmethod
+    def validate_phone_numbers(cls, v: str | None) -> str | None:
         if v is not None and not _PHONE_PATTERN.match(v):
-            raise ValueError("transfer_number must be in E.164 format, e.g. '+12125551234'")
+            raise ValueError("Phone number must be in E.164 format, e.g. '+12125551234'")
         return v

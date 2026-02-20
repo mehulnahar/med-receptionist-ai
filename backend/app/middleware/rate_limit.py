@@ -67,20 +67,29 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return val not in ("false", "0", "no", "off")
 
     def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP, respecting X-Forwarded-For behind proxy.
+        """Extract client IP for rate-limiting purposes.
 
-        Falls back to X-Real-IP (nginx) or request.client.host.
-        Uses a per-request hash when no IP can be determined to avoid
-        lumping all unknown clients into a single rate-limit bucket.
+        Priority order (most trustworthy first):
+        1. X-Real-IP — set by nginx from the actual TCP connection, not
+           spoofable by the client.
+        2. request.client.host — the direct TCP peer address.
+        3. X-Forwarded-For (first entry) — only used as a last resort because
+           it can be trivially spoofed when not behind a trusted proxy.
+        4. Fingerprint hash — when no IP can be determined.
+
+        Note: In production behind nginx, X-Real-IP is always set.
         """
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
+        # Prefer X-Real-IP: nginx sets this from $remote_addr (TCP peer)
         real_ip = request.headers.get("x-real-ip")
         if real_ip:
             return real_ip.strip()
+        # Direct TCP peer (when not behind a proxy)
         if request.client and request.client.host:
             return request.client.host
+        # Fallback: X-Forwarded-For (spoofable — only for dev/direct access)
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
         # Last resort: hash of user-agent + accept-language to partition unknowns
         import hashlib
         fingerprint = (

@@ -1,6 +1,9 @@
 """SMS notification endpoints — send confirmations and custom messages."""
 
+import logging
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -73,9 +76,10 @@ async def send_confirmation(
             detail=str(exc),
         )
     except Exception as exc:
-        return SmsResponse(
-            success=False,
-            error=f"Failed to send confirmation SMS: {str(exc)}",
+        logger.error("send_confirmation: unexpected error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal error while sending confirmation SMS",
         )
 
 
@@ -107,9 +111,10 @@ async def send_custom(
             detail=str(exc),
         )
     except Exception as exc:
-        return SmsResponse(
-            success=False,
-            error=f"Failed to send SMS: {str(exc)}",
+        logger.error("send_custom: unexpected error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal error while sending SMS",
         )
 
 

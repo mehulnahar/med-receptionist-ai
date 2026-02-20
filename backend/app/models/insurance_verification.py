@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, Boolean, DateTime, Numeric, ForeignKey, text
+from sqlalchemy import Column, Index, String, Boolean, DateTime, Numeric, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -10,6 +10,9 @@ from app.database import Base
 
 class InsuranceVerification(Base):
     __tablename__ = "insurance_verifications"
+    __table_args__ = (
+        Index("ix_ins_verif_practice_patient", "practice_id", "patient_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
@@ -25,6 +28,7 @@ class InsuranceVerification(Base):
     plan_name = Column(String(255), nullable=True)
     status = Column(String(20), nullable=True)
     verified_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
     practice = relationship("Practice", back_populates="insurance_verifications", lazy="select")

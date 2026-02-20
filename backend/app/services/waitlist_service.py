@@ -107,8 +107,11 @@ async def check_waitlist_on_cancellation(
         WaitlistEntry.status == "waiting",
     ]
 
+    from sqlalchemy.orm import joinedload
+
     stmt = (
         select(WaitlistEntry)
+        .options(joinedload(WaitlistEntry.practice))
         .where(and_(*filters))
         .order_by(WaitlistEntry.priority.asc(), WaitlistEntry.created_at.asc())
         .with_for_update(skip_locked=True)
@@ -218,7 +221,9 @@ async def notify_waitlist_patient(
             "notify_waitlist_patient: invalid phone '%s' for entry %s, skipping",
             phone, entry.id,
         )
-        entry.status = "failed"
+        # Keep as 'waiting' (not 'failed' which is not a valid status) and
+        # annotate with a note so staff can see the issue and fix the phone number.
+        entry.notes = (entry.notes or "") + f"\n[SMS failed: invalid phone '{phone}']"
         await db.flush()
         return {
             "entry_id": str(entry.id),
@@ -272,6 +277,7 @@ async def notify_waitlist_patient(
 
 async def process_waitlist_response(
     db: AsyncSession,
+    practice_id: UUID,
     patient_phone: str,
     response: str,
 ) -> dict:
@@ -297,11 +303,12 @@ async def process_waitlist_response(
 
     now = datetime.now(timezone.utc)
 
-    # Find the most recent notified entry for this phone number
+    # Find the most recent notified entry for this phone number within practice
     stmt = (
         select(WaitlistEntry)
         .where(
             and_(
+                WaitlistEntry.practice_id == practice_id,
                 WaitlistEntry.patient_phone == patient_phone,
                 WaitlistEntry.status == "notified",
                 WaitlistEntry.expires_at > now,

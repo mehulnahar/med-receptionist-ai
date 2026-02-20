@@ -1,6 +1,6 @@
 """Voicemail message model."""
 import uuid
-from sqlalchemy import Column, String, Text, DateTime, Boolean, Integer, ForeignKey, CheckConstraint, text
+from sqlalchemy import Column, Index, String, Text, DateTime, Boolean, Integer, ForeignKey, CheckConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -18,6 +18,7 @@ class Voicemail(Base):
             "urgency IN ('normal', 'urgent', 'emergency')",
             name="ck_voicemails_urgency",
         ),
+        Index("ix_voicemail_practice_status", "practice_id", "status"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -42,6 +43,7 @@ class Voicemail(Base):
     responded_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
     practice = relationship("Practice", lazy="select")

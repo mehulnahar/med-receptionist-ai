@@ -147,14 +147,16 @@ function DirectionIcon({ direction }) {
 /** Audio player for call recordings. */
 function RecordingPlayer({ url }) {
   const [playing, setPlaying] = useState(false)
+  const [error, setError] = useState(false)
   const [audioRef, setAudioRef] = useState(null)
 
   function togglePlay() {
-    if (!audioRef) return
+    if (!audioRef || error) return
     if (playing) {
       audioRef.pause()
     } else {
-      audioRef.play()
+      setError(false)
+      audioRef.play().catch(() => setError(true))
     }
     setPlaying(!playing)
   }
@@ -167,17 +169,21 @@ function RecordingPlayer({ url }) {
         onEnded={() => setPlaying(false)}
         onPause={() => setPlaying(false)}
         onPlay={() => setPlaying(true)}
+        onError={() => { setPlaying(false); setError(true) }}
         preload="none"
       />
       <button
         onClick={togglePlay}
+        disabled={error}
         className={clsx(
           'inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors',
-          playing
-            ? 'bg-red-100 text-red-700 hover:bg-red-200'
-            : 'bg-primary-100 text-primary-700 hover:bg-primary-200'
+          error
+            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            : playing
+              ? 'bg-red-100 text-red-700 hover:bg-red-200'
+              : 'bg-primary-100 text-primary-700 hover:bg-primary-200'
         )}
-        title={playing ? 'Pause' : 'Play recording'}
+        title={error ? 'Recording unavailable' : playing ? 'Pause' : 'Play recording'}
       >
         {playing ? (
           <Pause className="w-4 h-4" />
@@ -185,8 +191,8 @@ function RecordingPlayer({ url }) {
           <Play className="w-4 h-4 ml-0.5" />
         )}
       </button>
-      <span className="text-sm text-gray-500">
-        {playing ? 'Playing...' : 'Play recording'}
+      <span className={clsx('text-sm', error ? 'text-red-500' : 'text-gray-500')}>
+        {error ? 'Recording expired or unavailable' : playing ? 'Playing...' : 'Play recording'}
       </span>
     </div>
   )

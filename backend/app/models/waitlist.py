@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, Integer, Text, Date, Time, DateTime, ForeignKey, text
+from sqlalchemy import Column, CheckConstraint, Index, String, Integer, Text, Date, Time, DateTime, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -10,6 +10,18 @@ from app.database import Base
 
 class WaitlistEntry(Base):
     __tablename__ = "waitlist_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('waiting', 'notified', 'booked', 'expired', 'cancelled')",
+            name="ck_waitlist_status",
+        ),
+        CheckConstraint(
+            "priority >= 1 AND priority <= 5",
+            name="ck_waitlist_priority",
+        ),
+        Index("ix_waitlist_practice_status", "practice_id", "status"),
+        Index("ix_waitlist_phone_status", "patient_phone", "status"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)

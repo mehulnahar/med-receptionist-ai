@@ -32,7 +32,7 @@ class Practice(Base):
     schedule_templates = relationship("ScheduleTemplate", back_populates="practice", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True)
     schedule_overrides = relationship("ScheduleOverride", back_populates="practice", lazy="select", cascade="all, delete-orphan", passive_deletes=True)
     appointment_types = relationship("AppointmentType", back_populates="practice", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True)
-    insurance_carriers = relationship("InsuranceCarrier", back_populates="practice", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True)
+    insurance_carriers = relationship("InsuranceCarrier", back_populates="practice", lazy="select", cascade="all, delete-orphan", passive_deletes=True)
     patients = relationship("Patient", back_populates="practice", lazy="select", cascade="all, delete-orphan", passive_deletes=True)
     appointments = relationship("Appointment", back_populates="practice", lazy="select", cascade="all, delete-orphan", passive_deletes=True)
     calls = relationship("Call", back_populates="practice", lazy="select", cascade="all, delete-orphan", passive_deletes=True)

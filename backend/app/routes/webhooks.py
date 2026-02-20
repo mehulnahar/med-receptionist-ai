@@ -430,7 +430,9 @@ async def _handle_status_update(
                 status=status or "unknown",
                 direction=direction,
             )
+        await db.commit()
     except Exception as e:
+        await db.rollback()
         logger.exception(
             "vapi_webhook: error handling status-update for call %s: %s",
             vapi_call_id, e,
@@ -550,6 +552,9 @@ async def _handle_tool_calls(
         logger.warning("vapi_webhook: tool-calls message but no tool calls found in body")
         return JSONResponse(status_code=200, content={"results": []})
 
+    # Commit any data changes made by tool calls (bookings, patients, etc.)
+    await db.commit()
+
     # Build and return the response Vapi expects
     response = VapiToolCallResponse(results=results)
     return JSONResponse(
@@ -640,8 +645,10 @@ async def _handle_function_call(
             params=params,
             vapi_call_id=vapi_call_id,
         )
+        await db.commit()
         return JSONResponse(status_code=200, content={"result": result})
     except Exception as e:
+        await db.rollback()
         logger.exception(
             "vapi_webhook: function '%s' failed: %s", func_name, e,
         )
@@ -801,18 +808,35 @@ async def _handle_end_of_call_report(
             except Exception as e:
                 logger.warning("vapi_webhook: failed to flag callback: %s", e)
 
+        # Commit all call data BEFORE spawning the background feedback task
+        # so the task's own session can read the committed data.
+        await db.commit()
+
         # Trigger self-improving feedback loop (non-blocking)
         try:
             if call_record:
                 import asyncio
+
+                def _feedback_done_callback(task: asyncio.Task):
+                    if task.cancelled():
+                        return
+                    exc = task.exception()
+                    if exc:
+                        logger.error(
+                            "Background feedback analysis failed: %s: %s",
+                            type(exc).__name__, exc,
+                        )
+
                 # Run feedback analysis in background (don't block webhook response)
-                asyncio.create_task(
+                task = asyncio.create_task(
                     _run_feedback_analysis(call_record.id, call_record.practice_id)
                 )
+                task.add_done_callback(_feedback_done_callback)
         except Exception as e:
             logger.warning("vapi_webhook: failed to trigger feedback loop: %s", e)
 
     except Exception as e:
+        await db.rollback()
         logger.exception(
             "vapi_webhook: error saving end-of-call-report for call %s: %s",
             vapi_call_id, e,
@@ -1105,10 +1129,23 @@ async def get_call_stats(
     practice_id = _ensure_practice(current_user, practice_id)
 
     from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from app.models.practice import Practice
 
-    today_start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
-    today_end = datetime.combine(date.today(), datetime.max.time(), tzinfo=timezone.utc)
-    week_start = datetime.combine(date.today() - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
+    # Use practice timezone for "today" instead of server UTC
+    try:
+        tz_row = (await db.execute(
+            select(Practice.timezone).where(Practice.id == practice_id)
+        )).scalar_one_or_none()
+        tz = ZoneInfo(tz_row) if tz_row else ZoneInfo("America/New_York")
+    except (KeyError, Exception):
+        tz = ZoneInfo("America/New_York")
+    practice_today = datetime.now(tz).date()
+
+    # Convert practice-local midnight boundaries to UTC for DB queries
+    today_start = datetime.combine(practice_today, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
+    today_end = datetime.combine(practice_today, datetime.max.time(), tzinfo=tz).astimezone(timezone.utc)
+    week_start = datetime.combine(practice_today - timedelta(days=7), datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
 
     base = [Call.practice_id == practice_id]
     today_filter = base + [func.coalesce(Call.started_at, Call.created_at) >= today_start, func.coalesce(Call.started_at, Call.created_at) <= today_end]
@@ -1118,7 +1155,9 @@ async def get_call_stats(
     total_today = (await db.execute(select(func.count(Call.id)).where(*today_filter))).scalar_one()
 
     # Missed calls today (ended_reason indicates customer/assistant hung up prematurely)
-    missed_reasons = ['customer-did-not-answer', 'customer-busy', 'customer-ended-call', 'assistant-error', 'phone-call-provider-closed-websocket']
+    # customer-ended-call is a NORMAL completion (patient hangs up after finishing)
+    # and should NOT be counted as missed
+    missed_reasons = ['customer-did-not-answer', 'customer-busy', 'assistant-error', 'phone-call-provider-closed-websocket']
     missed_today = (await db.execute(
         select(func.count(Call.id)).where(*today_filter, Call.outcome.in_(missed_reasons))
     )).scalar_one()

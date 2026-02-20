@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from uuid import UUID
 from datetime import date, time
 
@@ -29,6 +29,12 @@ class ScheduleTemplateUpdate(BaseModel):
             raise ValueError("end_time must be after start_time")
         return v
 
+    @model_validator(mode="after")
+    def enabled_requires_times(self) -> "ScheduleTemplateUpdate":
+        if self.is_enabled and (self.start_time is None or self.end_time is None):
+            raise ValueError("start_time and end_time are required when is_enabled is True")
+        return self
+
 
 class ScheduleWeekResponse(BaseModel):
     schedules: list[ScheduleTemplateResponse] = Field(
@@ -57,13 +63,8 @@ class ScheduleOverrideCreate(BaseModel):
     end_time: time | None = None
     reason: str | None = Field(None, max_length=255)
 
-    @field_validator("date")
-    @classmethod
-    def date_not_in_past(cls, v: date) -> date:
-        from datetime import date as date_type
-        if v < date_type.today():
-            raise ValueError("Override date cannot be in the past")
-        return v
+    # NOTE: Past-date validation was moved to the route handler
+    # (create_schedule_override) where practice timezone is available.
 
     @field_validator("end_time")
     @classmethod

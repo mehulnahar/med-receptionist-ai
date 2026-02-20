@@ -70,7 +70,9 @@ async def schedule_reminders(
     created_reminders: list[AppointmentReminder] = []
 
     try:
-        # Load patient for name and language
+        # Explicitly load relationships to avoid lazy-load MissingGreenlet
+        # in async context (relationships may not be populated after flush).
+        await db.refresh(appointment, attribute_names=["patient", "practice"])
         patient: Patient = appointment.patient
         practice: Practice = appointment.practice
 
@@ -296,8 +298,14 @@ async def process_pending_reminders(db: AsyncSession) -> int:
         # per-reminder backoff check is done in the loop below.
         backoff_floor = now - timedelta(minutes=2)
 
+        from sqlalchemy.orm import joinedload
+
         stmt = (
             select(AppointmentReminder)
+            .options(
+                joinedload(AppointmentReminder.patient),
+                joinedload(AppointmentReminder.appointment),
+            )
             .where(
                 and_(
                     AppointmentReminder.status == "pending",
@@ -320,26 +328,36 @@ async def process_pending_reminders(db: AsyncSession) -> int:
         )
 
         for reminder in reminders:
-            # Exponential backoff: skip if not enough time since last failed attempt
-            if reminder.attempts > 0 and reminder.updated_at:
-                backoff_minutes = 2 ** reminder.attempts  # 2, 4, 8 ...
-                retry_after = reminder.updated_at + timedelta(minutes=backoff_minutes)
-                if now < retry_after:
+            try:
+                # Exponential backoff: skip if not enough time since last failed attempt
+                if reminder.attempts > 0 and reminder.updated_at:
+                    backoff_minutes = 2 ** reminder.attempts  # 2, 4, 8 ...
+                    retry_after = reminder.updated_at + timedelta(minutes=backoff_minutes)
+                    if now < retry_after:
+                        continue
+                # Double-check the appointment is still active
+                appointment: Appointment = reminder.appointment
+                if appointment and appointment.status in ("cancelled", "no_show"):
+                    reminder.status = "cancelled"
+                    await db.commit()
+                    logger.info(
+                        "process_pending_reminders: cancelled reminder %s (appointment %s is %s)",
+                        reminder.id, appointment.id, appointment.status,
+                    )
                     continue
-            # Double-check the appointment is still active
-            appointment: Appointment = reminder.appointment
-            if appointment and appointment.status in ("cancelled", "no_show"):
-                reminder.status = "cancelled"
-                await db.flush()
-                logger.info(
-                    "process_pending_reminders: cancelled reminder %s (appointment %s is %s)",
-                    reminder.id, appointment.id, appointment.status,
-                )
-                continue
 
-            success = await send_sms_reminder(db, reminder)
-            if success:
-                sent_count += 1
+                success = await send_sms_reminder(db, reminder)
+                # Commit each reminder individually to prevent batch rollback
+                # causing duplicate SMS sends on partial failure
+                await db.commit()
+                if success:
+                    sent_count += 1
+            except Exception as rem_err:
+                await db.rollback()
+                logger.warning(
+                    "process_pending_reminders: error processing reminder %s: %s",
+                    reminder.id, rem_err,
+                )
 
         logger.info(
             "process_pending_reminders: sent %d out of %d reminders",
@@ -406,6 +424,7 @@ async def handle_sms_reply(
     db: AsyncSession,
     from_number: str,
     body: str,
+    practice_id: UUID | None = None,
 ) -> dict:
     """
     Handle an incoming SMS reply from a patient.
@@ -419,15 +438,16 @@ async def handle_sms_reply(
         normalized_body = body.strip().upper()
 
         # Find the most recently sent reminder for this phone number
+        filters = [
+            Patient.phone == from_number,
+            AppointmentReminder.status == "sent",
+        ]
+        if practice_id is not None:
+            filters.append(AppointmentReminder.practice_id == practice_id)
         stmt = (
             select(AppointmentReminder)
             .join(Patient, AppointmentReminder.patient_id == Patient.id)
-            .where(
-                and_(
-                    Patient.phone == from_number,
-                    AppointmentReminder.status == "sent",
-                )
-            )
+            .where(and_(*filters))
             .order_by(AppointmentReminder.sent_at.desc())
             .limit(1)
         )

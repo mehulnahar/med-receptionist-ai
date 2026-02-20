@@ -14,6 +14,7 @@ The loop:
   When pattern is strong → suggest_prompt_improvement() → admin approves or auto-applies
 """
 
+import asyncio
 import logging
 import json
 from datetime import datetime, timezone, timedelta
@@ -25,11 +26,11 @@ from sqlalchemy import Integer, select, func, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.utils.http_client import get_http_client
 from app.models.call import Call
 from app.models.feedback import CallFeedback, PromptVersion, FeedbackInsight
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 # ---------------------------------------------------------------------------
 # LLM interface (uses OpenAI-compatible API)
@@ -45,7 +46,7 @@ async def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = True
     Falls back gracefully if no API key configured.
     Retries on transient errors (5xx, timeouts) up to _LLM_MAX_RETRIES times.
     """
-    api_key = settings.OPENAI_API_KEY
+    api_key = get_settings().OPENAI_API_KEY
     if not api_key:
         logger.debug("feedback_service: No OPENAI_API_KEY configured, skipping LLM analysis")
         return None
@@ -67,28 +68,29 @@ async def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = True
     last_error = None
     for attempt in range(_LLM_MAX_RETRIES + 1):
         try:
-            async with httpx.AsyncClient(timeout=_LLM_TIMEOUT) as client:
-                resp = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=body,
-                )
+            client = get_http_client()
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=_LLM_TIMEOUT,
+            )
 
-                # Don't retry on client errors (4xx)
-                if 400 <= resp.status_code < 500:
-                    logger.warning("feedback_service: LLM returned %d: %s", resp.status_code, resp.text[:200])
-                    return None
+            # Don't retry on client errors (4xx)
+            if 400 <= resp.status_code < 500:
+                logger.warning("feedback_service: LLM returned %d: %s", resp.status_code, resp.text[:200])
+                return None
 
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
 
-                if json_mode:
-                    return json.loads(content)
-                return content
+            if json_mode:
+                return json.loads(content)
+            return content
 
         except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
             last_error = e
@@ -603,25 +605,32 @@ async def push_prompt_to_vapi(
         logger.warning("feedback_service: no Vapi assistant ID for practice %s", practice_id)
         return False
 
+    # Use per-practice Vapi API key, falling back to global key
+    vapi_key = getattr(config, "vapi_api_key", None) or get_settings().VAPI_API_KEY
+    if not vapi_key:
+        logger.warning("feedback_service: no Vapi API key for practice %s", practice_id)
+        return False
+
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.patch(
-                f"https://api.vapi.ai/assistant/{config.vapi_assistant_id}",
-                headers={
-                    "Authorization": f"Bearer {settings.VAPI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": {
-                        "messages": [
-                            {"role": "system", "content": prompt_text}
-                        ]
-                    }
-                },
-            )
-            resp.raise_for_status()
-            logger.info("feedback_service: pushed prompt to Vapi assistant %s", config.vapi_assistant_id)
-            return True
+        client = get_http_client()
+        resp = await client.patch(
+            f"https://api.vapi.ai/assistant/{config.vapi_assistant_id}",
+            headers={
+                "Authorization": f"Bearer {vapi_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": {
+                    "messages": [
+                        {"role": "system", "content": prompt_text}
+                    ]
+                }
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        logger.info("feedback_service: pushed prompt to Vapi assistant %s", config.vapi_assistant_id)
+        return True
 
     except Exception as e:
         logger.error("feedback_service: failed to push prompt to Vapi: %s", e)
@@ -645,17 +654,23 @@ async def _fetch_current_vapi_prompt(db: AsyncSession, practice_id: UUID) -> str
         if not config or not config.vapi_assistant_id:
             return None
 
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"https://api.vapi.ai/assistant/{config.vapi_assistant_id}",
-                headers={"Authorization": f"Bearer {settings.VAPI_API_KEY}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            messages = data.get("model", {}).get("messages", [])
-            for msg in messages:
-                if msg.get("role") == "system":
-                    return msg["content"]
+        # Use per-practice Vapi API key, falling back to global key
+        vapi_key = getattr(config, "vapi_api_key", None) or get_settings().VAPI_API_KEY
+        if not vapi_key:
+            return None
+
+        client = get_http_client()
+        resp = await client.get(
+            f"https://api.vapi.ai/assistant/{config.vapi_assistant_id}",
+            headers={"Authorization": f"Bearer {vapi_key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        messages = data.get("model", {}).get("messages", [])
+        for msg in messages:
+            if msg.get("role") == "system":
+                return msg["content"]
     except Exception as e:
         logger.warning("feedback_service: failed to fetch Vapi prompt: %s", e)
 

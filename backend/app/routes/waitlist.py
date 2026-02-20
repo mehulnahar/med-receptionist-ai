@@ -16,7 +16,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select, desc, and_
+from sqlalchemy import select, desc, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -97,6 +97,11 @@ class UpdateWaitlistRequest(_DateTimeRangeValidator, BaseModel):
     preferred_time_end: time | None = None
 
 
+class WaitlistListResponse(BaseModel):
+    entries: list[WaitlistEntryResponse]
+    total: int
+
+
 class WaitlistStatsResponse(BaseModel):
     total_waiting: int
     total_notified: int
@@ -142,7 +147,7 @@ async def waitlist_stats(
     return WaitlistStatsResponse(**stats)
 
 
-@router.get("/", response_model=list[WaitlistEntryResponse])
+@router.get("/", response_model=WaitlistListResponse)
 async def list_waitlist_entries(
     status_filter: Optional[str] = Query(None, alias="status"),
     patient_name: Optional[str] = Query(None, description="Filter by patient name (partial match)"),
@@ -203,6 +208,12 @@ async def list_waitlist_entries(
         if (dt_to_val - dt_from_val).days > 365:
             raise HTTPException(status_code=400, detail="Date range cannot exceed 365 days.")
 
+    # Total count for pagination
+    count_result = await db.execute(
+        select(func.count(WaitlistEntry.id)).where(and_(*filters))
+    )
+    total = count_result.scalar_one()
+
     result = await db.execute(
         select(WaitlistEntry)
         .where(and_(*filters))
@@ -211,7 +222,10 @@ async def list_waitlist_entries(
         .offset(offset)
     )
 
-    return [WaitlistEntryResponse.model_validate(r) for r in result.scalars().all()]
+    return WaitlistListResponse(
+        entries=[WaitlistEntryResponse.model_validate(r) for r in result.scalars().all()],
+        total=total,
+    )
 
 
 @router.post("/", response_model=WaitlistEntryResponse, status_code=status.HTTP_201_CREATED)
@@ -264,31 +278,25 @@ async def update_waitlist_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Waitlist entry not found")
 
-    if request.status is not None:
-        if request.status not in VALID_STATUSES:
+    # Use exclude_unset so we can distinguish "field omitted" from "field = null"
+    # This allows callers to explicitly clear optional fields by sending null.
+    update_data = request.model_dump(exclude_unset=True)
+
+    if "status" in update_data:
+        if update_data["status"] not in VALID_STATUSES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid status. Must be one of: {', '.join(sorted(VALID_STATUSES))}",
             )
-        entry.status = request.status
 
-    if request.priority is not None:
-        entry.priority = request.priority
-
-    if request.notes is not None:
-        entry.notes = request.notes
-
-    if request.preferred_date_start is not None:
-        entry.preferred_date_start = request.preferred_date_start
-
-    if request.preferred_date_end is not None:
-        entry.preferred_date_end = request.preferred_date_end
-
-    if request.preferred_time_start is not None:
-        entry.preferred_time_start = request.preferred_time_start
-
-    if request.preferred_time_end is not None:
-        entry.preferred_time_end = request.preferred_time_end
+    UPDATABLE_FIELDS = {
+        "status", "priority", "notes",
+        "preferred_date_start", "preferred_date_end",
+        "preferred_time_start", "preferred_time_end",
+    }
+    for field, value in update_data.items():
+        if field in UPDATABLE_FIELDS:
+            setattr(entry, field, value)
 
     await db.flush()
     await db.commit()

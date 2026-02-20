@@ -329,6 +329,7 @@ async def cancel_reminder_endpoint(
 
     reminder.status = "cancelled"
     await db.flush()
+    await db.commit()
 
     return {"status": "ok", "message": "Reminder cancelled"}
 

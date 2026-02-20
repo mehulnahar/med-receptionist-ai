@@ -23,6 +23,7 @@ router = APIRouter()
 
 @router.get("/", response_model=AppointmentTypeListResponse)
 async def list_appointment_types(
+    include_inactive: bool = Query(False, description="Include deactivated types (admin use)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
@@ -33,11 +34,15 @@ async def list_appointment_types(
             detail="No practice associated with this user",
         )
 
-    result = await db.execute(
+    query = (
         select(AppointmentType)
         .where(AppointmentType.practice_id == current_user.practice_id)
-        .order_by(AppointmentType.sort_order, AppointmentType.name)
     )
+    if not include_inactive:
+        query = query.where(AppointmentType.is_active == True)  # noqa: E712
+    query = query.order_by(AppointmentType.sort_order, AppointmentType.name)
+
+    result = await db.execute(query)
     types = result.scalars().all()
 
     return AppointmentTypeListResponse(

@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medrecept_dev_2026}
       POSTGRES_DB: ${POSTGRES_DB:-medical_receptionist}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # Loopback only — never expose DB on public interfaces
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,7 +35,7 @@ services:
       VAPI_WEBHOOK_SECRET: ${VAPI_WEBHOOK_SECRET:-}
       STEDI_API_KEY: ${STEDI_API_KEY:-}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # Loopback only — nginx handles external traffic
     volumes:
       - ./backend:/app
     depends_on:

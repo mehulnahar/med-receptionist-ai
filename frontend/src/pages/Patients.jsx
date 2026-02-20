@@ -118,6 +118,20 @@ const APPT_STATUS_CONFIG = {
     ring: 'ring-blue-600/20',
     dot: 'bg-blue-500',
   },
+  no_show: {
+    label: 'No Show',
+    bg: 'bg-orange-50',
+    text: 'text-orange-700',
+    ring: 'ring-orange-600/20',
+    dot: 'bg-orange-500',
+  },
+  entered_in_ehr: {
+    label: 'In EHR',
+    bg: 'bg-purple-50',
+    text: 'text-purple-700',
+    ring: 'ring-purple-600/20',
+    dot: 'bg-purple-500',
+  },
 }
 
 function ApptStatusBadge({ status }) {
@@ -218,11 +232,12 @@ function AddPatientModal({ onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="add-patient-title">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Dialog */}
@@ -234,7 +249,7 @@ function AddPatientModal({ onClose, onCreated }) {
               <UserPlus className="w-5 h-5 text-primary-600" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 id="add-patient-title" className="text-lg font-semibold text-gray-900">
                 Add Patient
               </h2>
               <p className="text-sm text-gray-500">

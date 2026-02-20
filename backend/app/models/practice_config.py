@@ -42,7 +42,7 @@ class PracticeConfig(Base):
     insurance_verification_on_call = Column(Boolean, default=True, nullable=False)
 
     # Languages
-    languages = Column(JSON, default=["en"], nullable=False)
+    languages = Column(JSON, default=lambda: ["en"], nullable=False)
     primary_language = Column(String(5), default="en", nullable=False)
     greek_transfer_to_staff = Column(Boolean, default=True, nullable=False)
 
@@ -53,7 +53,7 @@ class PracticeConfig(Base):
     booking_horizon_days = Column(Integer, default=90, nullable=False)
 
     # Greetings
-    greetings = Column(JSON, default={}, nullable=False)
+    greetings = Column(JSON, default=dict, nullable=False)
 
     # Transfer
     transfer_number = Column(String(20), nullable=True)
@@ -61,7 +61,7 @@ class PracticeConfig(Base):
 
     # SMS
     sms_confirmation_enabled = Column(Boolean, default=True, nullable=False)
-    sms_confirmation_template = Column(JSON, default={}, nullable=False)
+    sms_confirmation_template = Column(JSON, default=dict, nullable=False)
 
     # Data fields
     new_patient_fields = Column(JSON, nullable=True)

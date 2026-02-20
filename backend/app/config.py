@@ -81,3 +81,11 @@ def get_settings() -> Settings:
             )
 
     return settings
+
+
+def clear_settings_cache() -> None:
+    """Clear the cached Settings so the next call to ``get_settings()``
+    re-reads environment variables.  Useful after rotating API keys
+    without a full process restart.
+    """
+    get_settings.cache_clear()

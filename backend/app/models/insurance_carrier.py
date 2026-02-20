@@ -21,7 +21,7 @@ class InsuranceCarrier(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
-    aliases = Column(JSON, default=[], nullable=False)
+    aliases = Column(JSON, default=list, nullable=False)
     stedi_payer_id = Column(String(50), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
 

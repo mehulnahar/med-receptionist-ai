@@ -14,6 +14,7 @@ from app.schemas.common import MessageResponse
 from app.services.auth_service import hash_password
 from app.services.audit_service import log_audit
 from app.middleware.auth import require_super_admin
+from app.utils.cache import practice_config_cache
 
 router = APIRouter()
 
@@ -126,10 +127,8 @@ async def update_practice(
     for field, value in update_data.items():
         setattr(practice, field, value)
 
-    await db.commit()
-    await db.refresh(practice)
-
-    # HIPAA audit trail for practice changes (NPI, tax_id, etc.)
+    # HIPAA audit trail — write BEFORE commit so both the update
+    # and the audit entry are in the same transaction.
     await log_audit(
         db=db,
         user=current_user,
@@ -140,7 +139,9 @@ async def update_practice(
         new_value=update_data,
         request=http_request,
     )
+
     await db.commit()
+    await db.refresh(practice)
 
     return PracticeResponse.model_validate(practice)
 
@@ -184,6 +185,7 @@ async def list_users(
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     request: UserCreate,
+    http_request: Request,
     current_user: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -204,8 +206,17 @@ async def create_user(
 
     user = User(**user_data)
     db.add(user)
-    await db.commit()
+    await db.flush()
     await db.refresh(user)
+
+    # HIPAA audit trail
+    await log_audit(
+        db, action="create", entity_type="user", entity_id=user.id,
+        user=current_user,
+        new_value={"email": user.email, "role": user.role, "practice_id": str(user.practice_id)},
+        request=http_request,
+    )
+    await db.commit()
     return UserResponse.model_validate(user)
 
 
@@ -231,6 +242,30 @@ async def update_user(
         )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Email already in use")
+
+    # Prevent demoting the last super_admin (would lock everyone out)
+    if (
+        "role" in update_data
+        and user.role == "super_admin"
+        and update_data["role"] != "super_admin"
+    ):
+        admin_count_result = await db.execute(
+            select(func.count(User.id)).where(
+                User.role == "super_admin",
+                User.is_active == True,  # noqa: E712
+            )
+        )
+        if admin_count_result.scalar_one() <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot demote the last active super admin",
+            )
+
+    # Never allow raw password or password_hash via setattr
+    FORBIDDEN_FIELDS = {"password", "password_hash"}
+    for field in FORBIDDEN_FIELDS:
+        if field in update_data:
+            del update_data[field]
 
     for field, value in update_data.items():
         setattr(user, field, value)
@@ -318,6 +353,17 @@ async def update_practice_config(
 
     update_data = request.model_dump(exclude_unset=True)
 
+    # Never overwrite real encrypted secrets with masked placeholder values
+    # that the frontend echoes back (e.g. "****abcd").
+    SECRET_FIELDS = {
+        "twilio_account_sid", "twilio_auth_token",
+        "vapi_api_key", "stedi_api_key",
+    }
+    for field in SECRET_FIELDS:
+        val = update_data.get(field)
+        if val is not None and val.startswith("*"):
+            del update_data[field]
+
     if config:
         # Update existing config
         for field, value in update_data.items():
@@ -326,6 +372,10 @@ async def update_practice_config(
         # Create new config for this practice
         config = PracticeConfig(practice_id=practice_id, **update_data)
         db.add(config)
+
+    # Invalidate cache BEFORE commit — prevents a race where another request
+    # reads the old DB row and re-populates the cache between commit and invalidate
+    practice_config_cache.invalidate(f"practice_config:{practice_id}")
 
     await db.commit()
     await db.refresh(config)

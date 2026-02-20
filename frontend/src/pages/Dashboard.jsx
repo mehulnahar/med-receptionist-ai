@@ -80,6 +80,20 @@ const STATUS_CONFIG = {
     ring: 'ring-primary-600/20',
     dot: 'bg-primary-500',
   },
+  no_show: {
+    label: 'No Show',
+    bg: 'bg-orange-50',
+    text: 'text-orange-700',
+    ring: 'ring-orange-600/20',
+    dot: 'bg-orange-500',
+  },
+  entered_in_ehr: {
+    label: 'In EHR',
+    bg: 'bg-purple-50',
+    text: 'text-purple-700',
+    ring: 'ring-purple-600/20',
+    dot: 'bg-purple-500',
+  },
 }
 
 function StatusBadge({ status }) {

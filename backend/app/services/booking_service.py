@@ -50,6 +50,11 @@ async def find_or_create_patient(
     using case-insensitive matching. If found, update any newly provided fields and
     return the patient. If not found, create a new patient with is_new=True.
     """
+    # Normalize names to prevent case-sensitive duplicate records
+    # (DB UniqueConstraint is case-sensitive in PostgreSQL)
+    first_name = first_name.strip().title()
+    last_name = last_name.strip().title()
+
     stmt = (
         select(Patient)
         .where(
@@ -162,6 +167,9 @@ async def _get_practice_config(db: AsyncSession, practice_id: UUID) -> PracticeC
     The config is read on nearly every booking/webhook/SMS call but changes
     only when an admin updates settings. Caching avoids thousands of
     redundant DB round-trips per day.
+
+    Returns a lightweight SimpleNamespace (not the ORM object) to avoid
+    DetachedInstanceError when the originating session closes.
     """
     cache_key = f"practice_config:{practice_id}"
     cached = practice_config_cache.get(cache_key)
@@ -174,8 +182,17 @@ async def _get_practice_config(db: AsyncSession, practice_id: UUID) -> PracticeC
     if not config:
         raise ValueError(f"Practice config not found for practice {practice_id}")
 
-    practice_config_cache.set(cache_key, config)
-    return config
+    # Cache scalar values only — ORM objects become detached after session close
+    from types import SimpleNamespace
+    cached_config = SimpleNamespace(
+        slot_duration_minutes=config.slot_duration_minutes,
+        booking_horizon_days=config.booking_horizon_days,
+        allow_overbooking=config.allow_overbooking,
+        max_overbooking_per_slot=config.max_overbooking_per_slot,
+        vapi_assistant_id=getattr(config, "vapi_assistant_id", None),
+    )
+    practice_config_cache.set(cache_key, cached_config)
+    return cached_config
 
 
 async def _get_schedule_for_date(
@@ -256,11 +273,17 @@ async def get_available_slots(
     practice_id: UUID,
     target_date: date,
     appointment_type_id: Optional[UUID] = None,
+    exclude_appointment_id: Optional[UUID] = None,
 ) -> list[dict]:
     """
     Return a list of time slot dicts for the given date.
 
     Each dict: {"time": time_obj, "is_available": bool, "current_bookings": int}
+
+    Args:
+        exclude_appointment_id: If provided, exclude this appointment from the
+            booking count (used during reschedule so the old appointment doesn't
+            block the new slot).
 
     Steps:
     1. Check schedule override / template for the date.
@@ -299,15 +322,17 @@ async def get_available_slots(
         return []
 
     # Count existing non-cancelled appointments per time slot on this date
+    bookings_filters = [
+        Appointment.practice_id == practice_id,
+        Appointment.date == target_date,
+        Appointment.status.notin_(["cancelled", "no_show"]),
+    ]
+    if exclude_appointment_id is not None:
+        bookings_filters.append(Appointment.id != exclude_appointment_id)
+
     bookings_stmt = (
         select(Appointment.time, func.count(Appointment.id))
-        .where(
-            and_(
-                Appointment.practice_id == practice_id,
-                Appointment.date == target_date,
-                Appointment.status != "cancelled",
-            )
-        )
+        .where(and_(*bookings_filters))
         .group_by(Appointment.time)
     )
     bookings_result = await db.execute(bookings_stmt)
@@ -424,7 +449,7 @@ async def find_next_available_slot(
                 Appointment.practice_id == practice_id,
                 Appointment.date >= start_date,
                 Appointment.date <= end_date,
-                Appointment.status != "cancelled",
+                Appointment.status.notin_(["cancelled", "no_show"]),
             )
         )
         .group_by(Appointment.date, Appointment.time)
@@ -588,7 +613,7 @@ async def book_appointment(
                 Appointment.practice_id == practice_id,
                 Appointment.date == appt_date,
                 Appointment.time == appt_time,
-                Appointment.status != "cancelled",
+                Appointment.status.notin_(["cancelled", "no_show"]),
             )
         )
         .with_for_update()
@@ -725,8 +750,10 @@ async def reschedule_appointment(
         raise ValueError("Cannot reschedule a cancelled appointment")
 
     # Validate the new slot is available (fast check)
+    # Exclude the old appointment so it doesn't block the new slot
     slots = await get_available_slots(
-        db, practice_id, new_date, old_appointment.appointment_type_id
+        db, practice_id, new_date, old_appointment.appointment_type_id,
+        exclude_appointment_id=old_appointment.id,
     )
     matching_slot = next((s for s in slots if s["time"] == new_time), None)
 
@@ -743,6 +770,7 @@ async def reschedule_appointment(
         )
 
     # Race-condition prevention: re-count with FOR UPDATE lock (same as book_appointment)
+    # Exclude the old appointment being rescheduled from the count
     config = await _get_practice_config(db, practice_id)
     lock_stmt = (
         select(func.count(Appointment.id))
@@ -751,7 +779,8 @@ async def reschedule_appointment(
                 Appointment.practice_id == practice_id,
                 Appointment.date == new_date,
                 Appointment.time == new_time,
-                Appointment.status != "cancelled",
+                Appointment.status.notin_(["cancelled", "no_show"]),
+                Appointment.id != old_appointment.id,
             )
         )
         .with_for_update()

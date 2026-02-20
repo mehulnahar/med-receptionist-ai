@@ -107,6 +107,8 @@ async def update_weekly_schedule(
 async def list_schedule_overrides(
     from_date: date | None = Query(None, description="Filter overrides from this date"),
     to_date: date | None = Query(None, description="Filter overrides up to this date"),
+    limit: int = Query(100, ge=1, le=500, description="Max results to return"),
+    offset: int = Query(0, ge=0, description="Number of results to skip"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
@@ -117,22 +119,25 @@ async def list_schedule_overrides(
             detail="No practice associated with this user",
         )
 
-    query = select(ScheduleOverride).where(
-        ScheduleOverride.practice_id == current_user.practice_id
-    )
+    base_filter = ScheduleOverride.practice_id == current_user.practice_id
+    query = select(ScheduleOverride).where(base_filter)
+    count_query = select(func.count(ScheduleOverride.id)).where(base_filter)
 
     if from_date:
         query = query.where(ScheduleOverride.date >= from_date)
+        count_query = count_query.where(ScheduleOverride.date >= from_date)
     if to_date:
         query = query.where(ScheduleOverride.date <= to_date)
+        count_query = count_query.where(ScheduleOverride.date <= to_date)
 
-    query = query.order_by(ScheduleOverride.date)
+    total = (await db.execute(count_query)).scalar_one()
+    query = query.order_by(ScheduleOverride.date).limit(limit).offset(offset)
     result = await db.execute(query)
     overrides = result.scalars().all()
 
     return ScheduleOverrideListResponse(
         overrides=[ScheduleOverrideResponse.model_validate(o) for o in overrides],
-        total=len(overrides),
+        total=total,
     )
 
 
@@ -147,6 +152,24 @@ async def create_schedule_override(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No practice associated with this user",
+        )
+
+    # Validate date is not in the past using the practice's timezone
+    from zoneinfo import ZoneInfo
+    from app.models.practice import Practice as PracticeModel
+
+    tz_row = (
+        await db.execute(
+            select(PracticeModel.timezone).where(PracticeModel.id == current_user.practice_id)
+        )
+    ).scalar_one_or_none()
+    practice_tz = ZoneInfo(tz_row) if tz_row else ZoneInfo("America/New_York")
+    today_practice = datetime.now(practice_tz).date()
+
+    if request.date < today_practice:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Override date cannot be in the past",
         )
 
     # Check if an override already exists for this date
@@ -219,6 +242,43 @@ async def get_availability(
         )
 
     practice_id = current_user.practice_id
+
+    # ------------------------------------------------------------------
+    # 0. Validate date range — reject past dates and cap future dates
+    # ------------------------------------------------------------------
+    from zoneinfo import ZoneInfo
+    from app.models.practice import Practice
+
+    tz_row = (
+        await db.execute(
+            select(Practice.timezone).where(Practice.id == practice_id)
+        )
+    ).scalar_one_or_none()
+    tz = ZoneInfo(tz_row) if tz_row else ZoneInfo("America/New_York")
+    today = datetime.now(tz).date()
+
+    if date < today:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot check availability for past dates",
+        )
+
+    # Cap to practice booking horizon (default 90 days)
+    cfg_row = (
+        await db.execute(
+            select(PracticeConfig.booking_horizon_days).where(
+                PracticeConfig.practice_id == practice_id
+            )
+        )
+    ).scalar_one_or_none()
+    horizon = cfg_row if cfg_row else 90
+    max_date = today + timedelta(days=horizon)
+
+    if date > max_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot check availability beyond {horizon} days in the future",
+        )
 
     # ------------------------------------------------------------------
     # 1. Check for a schedule override on this date
@@ -305,7 +365,7 @@ async def get_availability(
         .where(
             Appointment.practice_id == practice_id,
             Appointment.date == date,
-            Appointment.status.notin_(["cancelled"]),
+            Appointment.status.notin_(["cancelled", "no_show"]),
         )
         .group_by(Appointment.time)
     )

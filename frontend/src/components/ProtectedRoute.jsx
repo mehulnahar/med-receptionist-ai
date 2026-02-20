@@ -41,6 +41,14 @@ export default function ProtectedRoute({ children, roles }) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
+  // ---- Password change required ----
+  // TODO: Uncomment once ChangePassword page is implemented and
+  // <Route path="change-password" element={<ChangePassword />} /> is added to App.jsx.
+  // Currently disabled to prevent infinite redirect loop (no /change-password route exists).
+  // if (user?.password_change_required && location.pathname !== '/change-password') {
+  //   return <Navigate to="/change-password" replace />
+  // }
+
   // ---- Role-based access check ----
   if (roles && roles.length > 0 && !roles.includes(user?.role)) {
     return (

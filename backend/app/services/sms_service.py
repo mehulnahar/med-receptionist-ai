@@ -15,6 +15,16 @@ from zoneinfo import ZoneInfo
 # Strict E.164 format: + followed by 1-15 digits, starting with non-zero
 _E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
 
+# Cache Twilio Client instances keyed by (account_sid, auth_token).
+# Avoids re-creating the HTTP client on every SMS send (~500-600/day).
+# Bounded to 16 entries to prevent unbounded growth on credential rotation.
+from functools import lru_cache
+
+@lru_cache(maxsize=16)
+def _get_twilio_client(account_sid: str, auth_token: str):
+    from twilio.rest import Client
+    return Client(account_sid, auth_token)
+
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -233,8 +243,8 @@ async def send_appointment_confirmation(
         if send_result["success"]:
             appointment.sms_confirmation_sent = True
             await db.flush()
-            await db.commit()
-            await db.refresh(appointment)
+            # NOTE: Do NOT commit here — let the caller control the transaction
+            # boundary so booking + reminders + SMS confirmation are atomic.
             logger.info(
                 "SMS confirmation sent for appointment %s to %s (SID: %s)",
                 appointment_id, patient.phone, send_result.get("message_sid"),
@@ -355,7 +365,7 @@ async def send_sms(
 
     import asyncio
 
-    client = Client(account_sid, auth_token)
+    client = _get_twilio_client(account_sid, auth_token)
     last_error: str = ""
 
     for attempt in range(1, max_retries + 1):

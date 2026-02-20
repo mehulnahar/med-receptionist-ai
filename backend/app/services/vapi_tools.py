@@ -36,6 +36,7 @@ from app.services.booking_service import (
     cancel_appointment,
     reschedule_appointment,
 )
+from app.models.call import Call
 from app.services.call_service import (
     link_call_to_patient,
     link_call_to_appointment,
@@ -315,15 +316,21 @@ async def tool_check_availability(
                 "today": today.isoformat(),
             }
 
-        # Cap how far into the future a caller can check (90 days)
-        max_future = today + timedelta(days=90)
+        # Cap how far into the future a caller can check (use practice config)
+        horizon_row = await db.execute(
+            select(PracticeConfig.booking_horizon_days).where(
+                PracticeConfig.practice_id == practice_id
+            )
+        )
+        booking_horizon = horizon_row.scalar_one_or_none() or 90
+        max_future = today + timedelta(days=booking_horizon)
         if target_date > max_future:
             return {
                 "date": target_date.isoformat(),
                 "date_display": f"{DAY_NAMES[target_date.weekday()]}, {target_date.strftime('%B %d, %Y')}",
                 "available_slots": [],
                 "total_available": 0,
-                "message": f"We can only check availability up to 90 days ahead. The latest date is {max_future.strftime('%B %d, %Y')}.",
+                "message": f"We can only check availability up to {booking_horizon} days ahead. The latest date is {max_future.strftime('%B %d, %Y')}.",
                 "today": today.isoformat(),
             }
 
@@ -466,6 +473,14 @@ async def tool_book_appointment(
         appt_date = _parse_date(params["date"])
         appt_time = _parse_time(params["time"])
 
+        # --- Resolve call_id from vapi_call_id ---
+        resolved_call_id: Optional[UUID] = None
+        if vapi_call_id:
+            call_row = await db.execute(
+                select(Call.id).where(Call.vapi_call_id == vapi_call_id)
+            )
+            resolved_call_id = call_row.scalar_one_or_none()
+
         # --- Book ---
         appointment = await book_appointment(
             db,
@@ -475,6 +490,7 @@ async def tool_book_appointment(
             appt_date=appt_date,
             appt_time=appt_time,
             booked_by="ai",
+            call_id=resolved_call_id,
         )
 
         # --- Link call ---
@@ -761,6 +777,13 @@ async def tool_cancel_appointment(
             reason="Cancelled by patient via phone",
         )
 
+        # Cancel pending reminders for the cancelled appointment
+        try:
+            from app.services.reminder_service import cancel_reminders
+            await cancel_reminders(db, cancelled_appt.id)
+        except Exception as rem_err:
+            logger.warning("tool_cancel_appointment: failed to cancel reminders: %s", rem_err)
+
         # Link call if applicable
         if vapi_call_id:
             await link_call_to_patient(db, vapi_call_id, patient_id)
@@ -874,6 +897,14 @@ async def tool_reschedule_appointment(
             new_date=new_date,
             new_time=new_time,
         )
+
+        # Cancel old reminders and schedule new ones
+        try:
+            from app.services.reminder_service import cancel_reminders, schedule_reminders
+            await cancel_reminders(db, appointment.id)
+            await schedule_reminders(db, new_appointment)
+        except Exception as rem_err:
+            logger.warning("tool_reschedule_appointment: failed to update reminders: %s", rem_err)
 
         # Link call if applicable
         if vapi_call_id:
@@ -1163,7 +1194,15 @@ async def tool_check_office_hours(
     DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     try:
-        now = datetime.now(timezone.utc)
+        # Use practice timezone for accurate open/closed determination
+        from zoneinfo import ZoneInfo
+        from app.models.practice import Practice as PracticeModel
+
+        tz_row = (await db.execute(
+            select(PracticeModel.timezone).where(PracticeModel.id == practice_id)
+        )).scalar_one_or_none()
+        practice_tz = ZoneInfo(tz_row) if tz_row else ZoneInfo("America/New_York")
+        now = datetime.now(practice_tz)
         current_day = now.weekday()  # 0=Monday, 6=Sunday
         current_time_val = now.time()
         today_date = now.date()
@@ -1298,7 +1337,11 @@ async def tool_check_office_hours(
 
     except Exception as e:
         logger.exception("tool_check_office_hours failed")
-        return {"is_open": True, "error": f"Failed to check office hours: {str(e)}"}
+        return {
+            "is_open": None,
+            "error": f"Failed to check office hours: {str(e)}",
+            "message": "I'm unable to verify our current hours right now. Please call back or check our website.",
+        }
 
 
 # ---------------------------------------------------------------------------

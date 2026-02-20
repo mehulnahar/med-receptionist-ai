@@ -212,6 +212,7 @@ export default function Analytics() {
 
   // Ref for auto-refresh interval
   const refreshIntervalRef = useRef(null)
+  const fetchDataRef = useRef(null)
 
   // ---------------------------------------------------------------------------
   // Data fetching
@@ -322,10 +323,15 @@ export default function Analytics() {
     fetchData()
   }, [fetchData])
 
-  // Auto-refresh every 60 seconds
+  // Keep ref current so the interval always calls the latest fetchData
+  useEffect(() => {
+    fetchDataRef.current = fetchData
+  }, [fetchData])
+
+  // Auto-refresh every 60 seconds (stable interval, no re-creation)
   useEffect(() => {
     refreshIntervalRef.current = setInterval(() => {
-      fetchData(true)
+      fetchDataRef.current?.(true)
     }, AUTO_REFRESH_INTERVAL)
 
     return () => {
@@ -333,7 +339,7 @@ export default function Analytics() {
         clearInterval(refreshIntervalRef.current)
       }
     }
-  }, [fetchData])
+  }, [])
 
   // ---------------------------------------------------------------------------
   // Derived data

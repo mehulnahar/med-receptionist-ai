@@ -23,6 +23,7 @@ from app.schemas.appointment import (
     CancelAppointmentRequest,
     RescheduleAppointmentRequest,
     ConfirmAppointmentRequest,
+    AppointmentStatusUpdate,
 )
 from app.schemas.common import MessageResponse
 from app.middleware.auth import get_current_user, require_any_staff, require_practice_admin
@@ -115,6 +116,7 @@ async def book_appointment_endpoint(
             Appointment.patient_id == request.patient_id,
             Appointment.date == request.date,
             Appointment.time == request.time,
+            Appointment.status.notin_(["cancelled", "no_show"]),
         ]
         if request.call_id:
             idem_filters.append(Appointment.call_id == request.call_id)
@@ -351,6 +353,13 @@ async def cancel_appointment_endpoint(
     except Exception as reminder_err:
         logger.warning("Failed to cancel reminders for appointment %s: %s", appointment_id, reminder_err)
 
+    # Notify waitlisted patients about the newly-opened slot
+    try:
+        from app.services.waitlist_service import check_waitlist_on_cancellation
+        await check_waitlist_on_cancellation(db, practice_id, appt)
+    except Exception as wl_err:
+        logger.warning("Failed to check waitlist after cancellation of %s: %s", appointment_id, wl_err)
+
     return AppointmentResponse(**build_appointment_response(appt))
 
 
@@ -439,3 +448,37 @@ async def reschedule_appointment_endpoint(
         logger.warning("Failed to update reminders for rescheduled appointment %s: %s", appointment_id, reminder_err)
 
     return AppointmentResponse(**build_appointment_response(new_appt))
+
+
+@router.patch("/{appointment_id}/status", response_model=AppointmentResponse)
+async def update_appointment_status(
+    appointment_id: UUID,
+    request: AppointmentStatusUpdate,
+    current_user: User = Depends(require_any_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the status of an appointment (e.g. no_show, entered_in_ehr, completed)."""
+    from datetime import datetime, timezone
+
+    practice_id = _ensure_practice(current_user)
+
+    result = await db.execute(
+        select(Appointment).where(
+            Appointment.id == appointment_id,
+            Appointment.practice_id == practice_id,
+        )
+    )
+    appt = result.scalar_one_or_none()
+    if not appt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Appointment not found",
+        )
+
+    appt.status = request.status
+    if request.notes is not None:
+        appt.notes = request.notes
+
+    await db.commit()
+    await db.refresh(appt)
+    return AppointmentResponse(**build_appointment_response(appt))

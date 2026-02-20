@@ -1,6 +1,6 @@
 """Prescription refill request model."""
 import uuid
-from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, text
+from sqlalchemy import Column, Index, String, Text, DateTime, Boolean, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -9,6 +9,9 @@ from app.database import Base
 
 class RefillRequest(Base):
     __tablename__ = "refill_requests"
+    __table_args__ = (
+        Index("ix_refill_practice_status", "practice_id", "status"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)

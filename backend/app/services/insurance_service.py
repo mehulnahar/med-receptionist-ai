@@ -485,15 +485,17 @@ async def check_eligibility(
     error_message: Optional[str] = None
 
     try:
-        async with httpx.AsyncClient(timeout=STEDI_TIMEOUT) as client:
-            response = await client.post(
-                STEDI_ELIGIBILITY_URL,
-                json=request_payload,
-                headers={
-                    "Authorization": f"Key {api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
+        from app.utils.http_client import get_http_client
+        client = get_http_client()
+        response = await client.post(
+            STEDI_ELIGIBILITY_URL,
+            json=request_payload,
+            headers={
+                "Authorization": f"Key {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=STEDI_TIMEOUT,
+        )
 
         logger.debug("Stedi response status: %s", response.status_code)
         response_data = response.json()
