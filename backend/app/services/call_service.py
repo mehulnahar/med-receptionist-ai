@@ -12,6 +12,8 @@ All functions use flush/refresh (NOT commit) so the caller controls
 transaction boundaries.
 """
 
+import re
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from uuid import UUID
@@ -21,6 +23,18 @@ from typing import Any
 
 from app.models.call import Call
 from app.models.practice_config import PracticeConfig
+
+_E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
+
+
+def _normalize_phone(phone: str | None) -> str | None:
+    """Strip whitespace/dashes and ensure E.164 format. Return None if invalid."""
+    if not phone:
+        return phone
+    cleaned = re.sub(r"[\s\-\(\).]", "", phone.strip())
+    if _E164_PATTERN.match(cleaned):
+        return cleaned
+    return phone  # Keep original if already stored differently
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +55,10 @@ async def create_or_update_call(
 
     Returns the created or updated Call instance.
     """
+    # Normalize phone number before storing
+    if "caller_phone" in kwargs and kwargs["caller_phone"]:
+        kwargs["caller_phone"] = _normalize_phone(kwargs["caller_phone"])
+
     stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
     result = await db.execute(stmt)
     call = result.scalar_one_or_none()

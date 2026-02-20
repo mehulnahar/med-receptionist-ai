@@ -21,9 +21,9 @@ class AppointmentReminder(Base):
     __tablename__ = "appointment_reminders"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
-    appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id"), nullable=False)
-    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
+    appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id", ondelete="CASCADE"), nullable=False)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
 
     # "sms", "call", or "both"
     reminder_type = Column(String(20), nullable=False, default="sms")
@@ -53,7 +53,7 @@ class AppointmentReminder(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
-    practice = relationship("Practice", lazy="selectin")
+    practice = relationship("Practice", lazy="select")
     appointment = relationship("Appointment", lazy="selectin")
     patient = relationship("Patient", lazy="selectin")
 

@@ -12,7 +12,7 @@ class WaitlistEntry(Base):
     __tablename__ = "waitlist_entries"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
     patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=True)
     patient_name = Column(String(255), nullable=False)
     patient_phone = Column(String(20), nullable=False)
@@ -30,7 +30,7 @@ class WaitlistEntry(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
-    practice = relationship("Practice", lazy="selectin")
+    practice = relationship("Practice", lazy="select")
     patient = relationship("Patient", lazy="selectin")
     appointment_type = relationship("AppointmentType", lazy="selectin")
 

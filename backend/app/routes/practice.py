@@ -88,7 +88,7 @@ async def create_practice_user(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     user_data = request.model_dump()
-    user_data["password_hash"] = hash_password(user_data.pop("password"))
+    user_data["password_hash"] = await hash_password(user_data.pop("password"))
     user_data["practice_id"] = current_user.practice_id  # Force to own practice
     user_data["role"] = "secretary"  # Force secretary role
 

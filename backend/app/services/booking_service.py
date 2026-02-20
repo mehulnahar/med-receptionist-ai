@@ -12,12 +12,16 @@ from uuid import UUID
 from datetime import date, time, datetime, timedelta
 from typing import Optional
 
+from zoneinfo import ZoneInfo
+
 from app.models.patient import Patient
 from app.models.appointment import Appointment
 from app.models.appointment_type import AppointmentType
+from app.models.practice import Practice
 from app.models.schedule import ScheduleTemplate, ScheduleOverride
 from app.models.practice_config import PracticeConfig
 from app.models.holiday import Holiday
+from app.utils.cache import practice_config_cache
 
 
 # ---------------------------------------------------------------------------
@@ -129,16 +133,19 @@ async def search_patients(
     if not any([first_name, last_name, dob, phone]):
         raise ValueError("At least one search parameter is required")
 
+    def _esc(val: str) -> str:
+        return val.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     filters = [Patient.practice_id == practice_id]
 
     if first_name:
-        filters.append(Patient.first_name.ilike(f"%{first_name}%"))
+        filters.append(Patient.first_name.ilike(f"%{_esc(first_name)}%"))
     if last_name:
-        filters.append(Patient.last_name.ilike(f"%{last_name}%"))
+        filters.append(Patient.last_name.ilike(f"%{_esc(last_name)}%"))
     if dob:
         filters.append(Patient.dob == dob)
     if phone:
-        filters.append(Patient.phone.ilike(f"%{phone}%"))
+        filters.append(Patient.phone.ilike(f"%{_esc(phone)}%"))
 
     stmt = select(Patient).where(and_(*filters)).limit(20)
     result = await db.execute(stmt)
@@ -150,12 +157,24 @@ async def search_patients(
 # ---------------------------------------------------------------------------
 
 async def _get_practice_config(db: AsyncSession, practice_id: UUID) -> PracticeConfig:
-    """Fetch the practice config, raising ValueError if not found."""
+    """Fetch the practice config with in-memory TTL cache (5 min).
+
+    The config is read on nearly every booking/webhook/SMS call but changes
+    only when an admin updates settings. Caching avoids thousands of
+    redundant DB round-trips per day.
+    """
+    cache_key = f"practice_config:{practice_id}"
+    cached = practice_config_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     stmt = select(PracticeConfig).where(PracticeConfig.practice_id == practice_id)
     result = await db.execute(stmt)
     config = result.scalar_one_or_none()
     if not config:
         raise ValueError(f"Practice config not found for practice {practice_id}")
+
+    practice_config_cache.set(cache_key, config)
     return config
 
 
@@ -172,7 +191,9 @@ async def _get_schedule_for_date(
     Returns (is_working, start_time, end_time).
     """
     # Check for holiday
-    holiday_stmt = select(Holiday).where(Holiday.date == target_date)
+    holiday_stmt = select(Holiday).where(
+        and_(Holiday.practice_id == practice_id, Holiday.date == target_date)
+    )
     holiday_result = await db.execute(holiday_stmt)
     if holiday_result.scalar_one_or_none():
         return (False, None, None)
@@ -331,39 +352,132 @@ async def find_next_available_slot(
     earliest available day.
 
     Returns {"date": date, "time": time} or None if nothing found.
+
+    Optimized: batch-fetches holidays, overrides, templates, and appointment
+    counts for the entire date range in ~5 queries instead of 3 per day (270+).
     """
     config = await _get_practice_config(db, practice_id)
-    start_date = from_date or date.today()
-    horizon = config.booking_horizon_days
 
+    # Use practice-local "today" instead of server UTC date
+    if from_date:
+        start_date = from_date
+    else:
+        try:
+            tz_row = (await db.execute(
+                select(Practice.timezone).where(Practice.id == practice_id)
+            )).scalar_one_or_none()
+            tz = ZoneInfo(tz_row) if tz_row else ZoneInfo("America/New_York")
+        except (KeyError, Exception):
+            tz = ZoneInfo("America/New_York")
+        start_date = datetime.now(tz).date()
+    horizon = config.booking_horizon_days
+    end_date = start_date + timedelta(days=horizon - 1)
+
+    # Determine slot duration
+    slot_duration = config.slot_duration_minutes
+    if appointment_type_id:
+        appt_type_stmt = select(AppointmentType).where(
+            and_(
+                AppointmentType.id == appointment_type_id,
+                AppointmentType.practice_id == practice_id,
+            )
+        )
+        appt_type_result = await db.execute(appt_type_stmt)
+        appt_type = appt_type_result.scalar_one_or_none()
+        if appt_type:
+            slot_duration = appt_type.duration_minutes
+
+    # Batch 1: All holidays in the date range
+    holiday_stmt = select(Holiday.date).where(
+        and_(
+            Holiday.practice_id == practice_id,
+            Holiday.date >= start_date,
+            Holiday.date <= end_date,
+        )
+    )
+    holiday_result = await db.execute(holiday_stmt)
+    holiday_dates: set[date] = {row[0] for row in holiday_result.all()}
+
+    # Batch 2: All schedule overrides in the date range
+    override_stmt = select(ScheduleOverride).where(
+        and_(
+            ScheduleOverride.practice_id == practice_id,
+            ScheduleOverride.date >= start_date,
+            ScheduleOverride.date <= end_date,
+        )
+    )
+    override_result = await db.execute(override_stmt)
+    overrides_map = {o.date: o for o in override_result.scalars().all()}
+
+    # Batch 3: All weekly templates (only 7 rows max)
+    template_stmt = select(ScheduleTemplate).where(
+        ScheduleTemplate.practice_id == practice_id
+    )
+    template_result = await db.execute(template_stmt)
+    templates_map = {t.day_of_week: t for t in template_result.scalars().all()}
+
+    # Batch 4: All non-cancelled appointment counts grouped by (date, time)
+    bookings_stmt = (
+        select(Appointment.date, Appointment.time, func.count(Appointment.id))
+        .where(
+            and_(
+                Appointment.practice_id == practice_id,
+                Appointment.date >= start_date,
+                Appointment.date <= end_date,
+                Appointment.status != "cancelled",
+            )
+        )
+        .group_by(Appointment.date, Appointment.time)
+    )
+    bookings_result = await db.execute(bookings_stmt)
+    bookings_map: dict[tuple[date, time], int] = {
+        (row[0], row[1]): row[2] for row in bookings_result.all()
+    }
+
+    max_per_slot = config.max_overbooking_per_slot if config.allow_overbooking else 1
+
+    # Iterate days using pre-fetched data (no per-day DB queries)
     for day_offset in range(horizon):
         check_date = start_date + timedelta(days=day_offset)
-        slots = await get_available_slots(
-            db, practice_id, check_date, appointment_type_id
-        )
-        available = [s for s in slots if s["is_available"]]
+
+        # Skip holidays
+        if check_date in holiday_dates:
+            continue
+
+        # Determine schedule for this date
+        override = overrides_map.get(check_date)
+        if override:
+            is_working, day_start, day_end = override.is_working, override.start_time, override.end_time
+        else:
+            template = templates_map.get(check_date.weekday())
+            if not template or not template.is_enabled:
+                continue
+            is_working, day_start, day_end = True, template.start_time, template.end_time
+
+        if not is_working or day_start is None or day_end is None:
+            continue
+
+        time_slots = _generate_time_slots(day_start, day_end, slot_duration)
+        if not time_slots:
+            continue
+
+        available = [
+            t for t in time_slots
+            if bookings_map.get((check_date, t), 0) < max_per_slot
+        ]
         if not available:
             continue
 
         if preferred_time:
-            # Find the slot closest to the preferred time
-            def time_distance(slot_dict: dict) -> int:
-                slot_seconds = (
-                    slot_dict["time"].hour * 3600
-                    + slot_dict["time"].minute * 60
-                    + slot_dict["time"].second
-                )
-                pref_seconds = (
-                    preferred_time.hour * 3600
-                    + preferred_time.minute * 60
-                    + preferred_time.second
-                )
+            def time_distance(t: time) -> int:
+                slot_seconds = t.hour * 3600 + t.minute * 60 + t.second
+                pref_seconds = preferred_time.hour * 3600 + preferred_time.minute * 60 + preferred_time.second
                 return abs(slot_seconds - pref_seconds)
 
             best = min(available, key=time_distance)
-            return {"date": check_date, "time": best["time"]}
+            return {"date": check_date, "time": best}
         else:
-            return {"date": check_date, "time": available[0]["time"]}
+            return {"date": check_date, "time": available[0]}
 
     return None
 
@@ -387,12 +501,44 @@ async def book_appointment(
     Create a new appointment after validating the type and slot availability.
 
     Raises ValueError if validation fails (wrong practice, inactive type,
-    slot not available, past date).
+    slot not available, past date/time, patient not in practice).
+    Uses SELECT FOR UPDATE to prevent race-condition double-booking.
     """
-    # Reject past dates
-    from datetime import date as date_cls
-    if appt_date < date_cls.today():
+    from zoneinfo import ZoneInfo
+
+    # Enforce notes length at service layer (Vapi tool calls bypass Pydantic)
+    if notes and len(notes) > 2000:
+        notes = notes[:2000]
+
+    # Reject past dates AND past times (timezone-aware using practice timezone)
+    config = await _get_practice_config(db, practice_id)
+    try:
+        tz = ZoneInfo(
+            config.timezone
+            if hasattr(config, "timezone") and config.timezone
+            else "America/New_York"
+        )
+    except (KeyError, Exception):
+        tz = ZoneInfo("America/New_York")
+
+    now = datetime.now(tz)
+    appt_datetime = datetime.combine(appt_date, appt_time, tzinfo=tz)
+    if appt_datetime < now:
         raise ValueError("Cannot book appointments in the past")
+
+    # Validate patient belongs to this practice (prevents cross-tenant booking)
+    patient_check_stmt = select(Patient).where(
+        and_(
+            Patient.id == patient_id,
+            Patient.practice_id == practice_id,
+        )
+    )
+    patient_check_result = await db.execute(patient_check_stmt)
+    patient = patient_check_result.scalar_one_or_none()
+    if not patient:
+        raise ValueError(
+            "Patient not found or does not belong to this practice"
+        )
 
     # Validate appointment type exists and belongs to this practice
     appt_type_stmt = (
@@ -415,7 +561,7 @@ async def book_appointment(
     if not appt_type.is_active:
         raise ValueError("Appointment type is not active")
 
-    # Validate the slot is available
+    # Validate the slot is available (initial fast check)
     slots = await get_available_slots(
         db, practice_id, appt_date, appointment_type_id
     )
@@ -428,6 +574,33 @@ async def book_appointment(
         )
 
     if not matching_slot["is_available"]:
+        raise ValueError(
+            f"Time slot {appt_time.strftime('%H:%M')} on {appt_date.isoformat()} "
+            f"is fully booked"
+        )
+
+    # Race-condition prevention: re-count bookings with FOR UPDATE lock.
+    # This ensures two concurrent requests cannot both see the slot as free.
+    lock_stmt = (
+        select(func.count(Appointment.id))
+        .where(
+            and_(
+                Appointment.practice_id == practice_id,
+                Appointment.date == appt_date,
+                Appointment.time == appt_time,
+                Appointment.status != "cancelled",
+            )
+        )
+        .with_for_update()
+    )
+    locked_result = await db.execute(lock_stmt)
+    current_bookings = locked_result.scalar_one()
+
+    max_per_slot = 1
+    if config.allow_overbooking:
+        max_per_slot = config.max_overbooking_per_slot
+
+    if current_bookings >= max_per_slot:
         raise ValueError(
             f"Time slot {appt_time.strftime('%H:%M')} on {appt_date.isoformat()} "
             f"is fully booked"
@@ -451,16 +624,7 @@ async def book_appointment(
     await db.refresh(appointment)
 
     # If the patient was marked as new, flip the flag after first booking
-    patient_stmt = select(Patient).where(
-        and_(
-            Patient.id == patient_id,
-            Patient.practice_id == practice_id,
-        )
-    )
-    patient_result = await db.execute(patient_stmt)
-    patient = patient_result.scalar_one_or_none()
-
-    if patient and patient.is_new:
+    if patient.is_new:
         patient.is_new = False
         await db.flush()
 
@@ -537,6 +701,10 @@ async def reschedule_appointment(
     Raises ValueError if the old appointment is not found or the new slot is
     not available.
     """
+    # Enforce notes length at service layer (Vapi tool calls bypass Pydantic)
+    if notes and len(notes) > 2000:
+        notes = notes[:2000]
+
     # Find the existing appointment
     stmt = (
         select(Appointment)
@@ -556,7 +724,7 @@ async def reschedule_appointment(
     if old_appointment.status == "cancelled":
         raise ValueError("Cannot reschedule a cancelled appointment")
 
-    # Validate the new slot is available
+    # Validate the new slot is available (fast check)
     slots = await get_available_slots(
         db, practice_id, new_date, old_appointment.appointment_type_id
     )
@@ -569,6 +737,30 @@ async def reschedule_appointment(
         )
 
     if not matching_slot["is_available"]:
+        raise ValueError(
+            f"Time slot {new_time.strftime('%H:%M')} on {new_date.isoformat()} "
+            f"is fully booked"
+        )
+
+    # Race-condition prevention: re-count with FOR UPDATE lock (same as book_appointment)
+    config = await _get_practice_config(db, practice_id)
+    lock_stmt = (
+        select(func.count(Appointment.id))
+        .where(
+            and_(
+                Appointment.practice_id == practice_id,
+                Appointment.date == new_date,
+                Appointment.time == new_time,
+                Appointment.status != "cancelled",
+            )
+        )
+        .with_for_update()
+    )
+    locked_result = await db.execute(lock_stmt)
+    current_bookings = locked_result.scalar_one()
+
+    max_per_slot = config.max_overbooking_per_slot if config.allow_overbooking else 1
+    if current_bookings >= max_per_slot:
         raise ValueError(
             f"Time slot {new_time.strftime('%H:%M')} on {new_date.isoformat()} "
             f"is fully booked"

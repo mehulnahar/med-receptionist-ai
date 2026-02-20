@@ -25,12 +25,15 @@ export default function LoadingSpinner({
 
   const spinner = (
     <div
+      role="status"
+      aria-live="polite"
+      aria-label={message || 'Loading'}
       className={clsx(
         'flex flex-col items-center justify-center gap-3',
         className
       )}
     >
-      <div className="relative">
+      <div className="relative" aria-hidden="true">
         {/* Faded background ring */}
         <div
           className={clsx(

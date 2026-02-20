@@ -1,6 +1,10 @@
+import logging
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -16,15 +20,64 @@ class Settings(BaseSettings):
     STEDI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     APP_URL: str = "http://localhost:8000"
+    APP_ENV: str = "development"
 
     # Rate limiting (requests per minute per IP)
     RATE_LIMIT_GENERAL: int = 100
     RATE_LIMIT_AUTH: int = 20
     RATE_LIMIT_WEBHOOKS: int = 200
+    RATE_LIMIT_ADMIN: int = 30
+
+    # Database connection pool (tune per environment via env vars)
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
 
     model_config = {"env_file": "../.env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+
+    # Fail loudly if JWT_SECRET is the insecure default in production
+    if settings.APP_ENV == "production" and settings.JWT_SECRET == "change-me-in-production":
+        raise RuntimeError(
+            "FATAL: JWT_SECRET is still the default value. "
+            "Set a strong random secret via environment variable before running in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+
+    if settings.APP_ENV == "production" and not settings.VAPI_WEBHOOK_SECRET:
+        logger.warning(
+            "WARNING: VAPI_WEBHOOK_SECRET is not set. "
+            "Vapi webhook signature verification will be skipped."
+        )
+
+    # Reject wildcard CORS in production — allows CSRF attacks
+    if settings.APP_ENV == "production":
+        origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
+        if "*" in origins:
+            raise RuntimeError(
+                "FATAL: CORS_ORIGINS contains '*' which is not allowed in production. "
+                "Set explicit allowed origins, e.g. CORS_ORIGINS=https://app.example.com"
+            )
+
+    # Warn about missing optional-but-important service keys
+    if settings.APP_ENV == "production":
+        if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
+            logger.warning(
+                "TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN not set — "
+                "SMS confirmations and reminders will be disabled."
+            )
+        if not settings.OPENAI_API_KEY:
+            logger.warning(
+                "OPENAI_API_KEY not set — feedback loop LLM analysis will be disabled."
+            )
+        if not settings.STEDI_API_KEY:
+            logger.warning(
+                "STEDI_API_KEY not set — insurance eligibility verification will fail "
+                "unless practice-level keys are configured."
+            )
+
+    return settings

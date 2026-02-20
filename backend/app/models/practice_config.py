@@ -6,25 +6,26 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.utils.encryption import EncryptedString
 
 
 class PracticeConfig(Base):
     __tablename__ = "practice_configs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), unique=True, nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), unique=True, nullable=False)
 
     # Telephony - Twilio
     twilio_phone_number = Column(String(20), nullable=True)
-    twilio_account_sid = Column(String(100), nullable=True)
-    twilio_auth_token = Column(String(100), nullable=True)
+    twilio_account_sid = Column(EncryptedString(300), nullable=True)
+    twilio_auth_token = Column(EncryptedString(300), nullable=True)
 
     # Telephony - Vonage forwarding
     vonage_forwarding_enabled = Column(Boolean, default=False, nullable=False)
     vonage_forwarding_number = Column(String(20), nullable=True)
 
     # Vapi
-    vapi_api_key = Column(String(255), nullable=True)
+    vapi_api_key = Column(EncryptedString(500), nullable=True)
     vapi_agent_id = Column(String(100), nullable=True)
     vapi_assistant_id = Column(String(100), nullable=True)
     vapi_phone_number_id = Column(String(100), nullable=True)
@@ -36,7 +37,7 @@ class PracticeConfig(Base):
     vapi_voice_id = Column(String(100), nullable=True)
 
     # Insurance - Stedi
-    stedi_api_key = Column(String(255), nullable=True)
+    stedi_api_key = Column(EncryptedString(500), nullable=True)
     stedi_enabled = Column(Boolean, default=False, nullable=False)
     insurance_verification_on_call = Column(Boolean, default=True, nullable=False)
 
@@ -76,7 +77,7 @@ class PracticeConfig(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
-    practice = relationship("Practice", back_populates="config", lazy="selectin")
+    practice = relationship("Practice", back_populates="config", lazy="select")
 
     def __repr__(self):
         return f"<PracticeConfig(id={self.id}, practice_id={self.practice_id})>"

@@ -21,7 +21,7 @@ from typing import Optional
 from uuid import UUID
 
 import httpx
-from sqlalchemy import select, func, and_, desc
+from sqlalchemy import Integer, select, func, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -35,49 +35,74 @@ settings = get_settings()
 # LLM interface (uses OpenAI-compatible API)
 # ---------------------------------------------------------------------------
 
+_LLM_TIMEOUT = httpx.Timeout(45.0, connect=10.0, pool=5.0)
+_LLM_MAX_RETRIES = 2
+
+
 async def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = True) -> dict | str | None:
     """
     Call GPT-4o-mini for analysis. Returns parsed JSON if json_mode else raw text.
     Falls back gracefully if no API key configured.
+    Retries on transient errors (5xx, timeouts) up to _LLM_MAX_RETRIES times.
     """
     api_key = settings.OPENAI_API_KEY
     if not api_key:
         logger.debug("feedback_service: No OPENAI_API_KEY configured, skipping LLM analysis")
         return None
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            body = {
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.2,
-                "max_tokens": 1500,
-            }
-            if json_mode:
-                body["response_format"] = {"type": "json_object"}
+    import asyncio
 
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+    body = {
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1500,
+    }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
 
-            if json_mode:
-                return json.loads(content)
-            return content
+    last_error = None
+    for attempt in range(_LLM_MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=_LLM_TIMEOUT) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                )
 
-    except Exception as e:
-        logger.warning("feedback_service: LLM call failed: %s", e)
-        return None
+                # Don't retry on client errors (4xx)
+                if 400 <= resp.status_code < 500:
+                    logger.warning("feedback_service: LLM returned %d: %s", resp.status_code, resp.text[:200])
+                    return None
+
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+
+                if json_mode:
+                    return json.loads(content)
+                return content
+
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            last_error = e
+            if attempt < _LLM_MAX_RETRIES:
+                delay = 2 ** attempt
+                logger.info("feedback_service: LLM call attempt %d failed (%s), retrying in %ds", attempt + 1, type(e).__name__, delay)
+                await asyncio.sleep(delay)
+                continue
+        except Exception as e:
+            logger.warning("feedback_service: LLM call failed: %s", e)
+            return None
+
+    logger.warning("feedback_service: LLM call failed after %d attempts: %s", _LLM_MAX_RETRIES + 1, last_error)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +482,7 @@ async def generate_prompt_improvement(
 
     if not current_version:
         # Get it from Vapi instead
-        current_prompt = await _fetch_current_vapi_prompt(practice_id)
+        current_prompt = await _fetch_current_vapi_prompt(db, practice_id)
         if not current_prompt:
             return None
     else:
@@ -603,33 +628,34 @@ async def push_prompt_to_vapi(
         return False
 
 
-async def _fetch_current_vapi_prompt(practice_id: UUID) -> str | None:
-    """Fetch the current system prompt from Vapi assistant."""
-    # This is a simplified version — in production, use the practice config
+async def _fetch_current_vapi_prompt(db: AsyncSession, practice_id: UUID) -> str | None:
+    """Fetch the current system prompt from Vapi assistant.
+
+    Accepts the caller's db session to avoid creating a standalone session
+    that could leak connections if the Vapi API call hangs.
+    """
     try:
-        from app.database import AsyncSessionLocal
         from app.models.practice_config import PracticeConfig
 
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(PracticeConfig).where(PracticeConfig.practice_id == practice_id)
+        result = await db.execute(
+            select(PracticeConfig).where(PracticeConfig.practice_id == practice_id)
+        )
+        config = result.scalar_one_or_none()
+
+        if not config or not config.vapi_assistant_id:
+            return None
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"https://api.vapi.ai/assistant/{config.vapi_assistant_id}",
+                headers={"Authorization": f"Bearer {settings.VAPI_API_KEY}"},
             )
-            config = result.scalar_one_or_none()
-
-            if not config or not config.vapi_assistant_id:
-                return None
-
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"https://api.vapi.ai/assistant/{config.vapi_assistant_id}",
-                    headers={"Authorization": f"Bearer {settings.VAPI_API_KEY}"},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                messages = data.get("model", {}).get("messages", [])
-                for msg in messages:
-                    if msg.get("role") == "system":
-                        return msg["content"]
+            resp.raise_for_status()
+            data = resp.json()
+            messages = data.get("model", {}).get("messages", [])
+            for msg in messages:
+                if msg.get("role") == "system":
+                    return msg["content"]
     except Exception as e:
         logger.warning("feedback_service: failed to fetch Vapi prompt: %s", e)
 
@@ -673,11 +699,14 @@ async def _update_prompt_metrics(
     pv.successful_calls = row[1] or 0
     pv.avg_score = float(row[2]) if row[2] else None
 
-    # Calculate booking rate from structured data
+    # Calculate booking rate — scoped to calls with feedback for THIS prompt version
     call_result = await db.execute(
-        select(func.count(Call.id)).where(
+        select(func.count(Call.id))
+        .join(CallFeedback, CallFeedback.call_id == Call.id)
+        .where(
             Call.practice_id == practice_id,
             Call.appointment_id.isnot(None),
+            CallFeedback.prompt_version == version,
         )
     )
     booked = call_result.scalar_one() or 0
@@ -700,32 +729,28 @@ async def process_call_feedback(
     Main entry point for the feedback loop. Called after end-of-call-report.
     Runs analysis, and triggers pattern detection every 10 calls.
     """
-    try:
-        # Step 1: Analyze this call
-        feedback = await analyze_call_quality(db, call_id)
+    # Step 1: Analyze this call
+    feedback = await analyze_call_quality(db, call_id)
 
-        if not feedback:
-            return
+    if not feedback:
+        return
 
-        # Step 2: Check if we should run pattern detection
-        # (every 10 calls or when we see a bad call)
-        count_result = await db.execute(
-            select(func.count(CallFeedback.id)).where(
-                CallFeedback.practice_id == practice_id,
-            )
+    # Step 2: Check if we should run pattern detection
+    # (every 10 calls or when we see a bad call)
+    count_result = await db.execute(
+        select(func.count(CallFeedback.id)).where(
+            CallFeedback.practice_id == practice_id,
         )
-        total_feedback = count_result.scalar_one()
+    )
+    total_feedback = count_result.scalar_one()
 
-        should_detect_patterns = (
-            total_feedback % 10 == 0  # Every 10 calls
-            or (feedback.overall_score is not None and feedback.overall_score < 0.3)  # Bad call
-        )
+    should_detect_patterns = (
+        total_feedback % 10 == 0  # Every 10 calls
+        or (feedback.overall_score is not None and feedback.overall_score < 0.3)  # Bad call
+    )
 
-        if should_detect_patterns:
-            await detect_patterns(db, practice_id)
+    if should_detect_patterns:
+        await detect_patterns(db, practice_id)
 
-        await db.commit()
-
-    except Exception as e:
-        logger.exception("feedback_service: process_call_feedback failed for call %s: %s", call_id, e)
-        await db.rollback()
+    # NOTE: commit/rollback is the caller's responsibility (_run_feedback_analysis)
+    await db.flush()

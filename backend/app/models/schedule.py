@@ -12,7 +12,7 @@ class ScheduleTemplate(Base):
     __tablename__ = "schedule_templates"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
     day_of_week = Column(Integer, nullable=False)  # 0=Monday, 6=Sunday
     is_enabled = Column(Boolean, default=True, nullable=False)
     start_time = Column(Time, nullable=True)
@@ -23,7 +23,7 @@ class ScheduleTemplate(Base):
     )
 
     # Relationships
-    practice = relationship("Practice", back_populates="schedule_templates", lazy="selectin")
+    practice = relationship("Practice", back_populates="schedule_templates", lazy="select")
 
     def __repr__(self):
         return f"<ScheduleTemplate(id={self.id}, practice_id={self.practice_id}, day={self.day_of_week})>"
@@ -33,7 +33,7 @@ class ScheduleOverride(Base):
     __tablename__ = "schedule_overrides"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
     date = Column(Date, nullable=False)
     is_working = Column(Boolean, default=False, nullable=False)
     start_time = Column(Time, nullable=True)
@@ -46,8 +46,8 @@ class ScheduleOverride(Base):
     )
 
     # Relationships
-    practice = relationship("Practice", back_populates="schedule_overrides", lazy="selectin")
-    creator = relationship("User", lazy="selectin")
+    practice = relationship("Practice", back_populates="schedule_overrides", lazy="select")
+    creator = relationship("User", lazy="select")
 
     def __repr__(self):
         return f"<ScheduleOverride(id={self.id}, practice_id={self.practice_id}, date={self.date})>"

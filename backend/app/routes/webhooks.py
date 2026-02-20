@@ -13,13 +13,14 @@ Message types handled:
 - end-of-call-report: Call complete with transcript/recording/summary
 - hang: Call hang notification
 
-Design decisions:
-- No JWT auth (Vapi calls this directly; secret verification can be added later)
+Security:
+- HMAC signature verification via X-Vapi-Signature header when VAPI_WEBHOOK_SECRET is set
 - Always returns 200 (even on errors) to prevent Vapi retries that cause bad UX
-- Logs everything for debugging
-- Multi-tenant: resolves practice from the call's phone number
+- Multi-tenant: resolves practice from the call's phone number (no unsafe fallback)
 """
 
+import hashlib
+import hmac
 import json
 import logging
 from datetime import date, datetime, timezone
@@ -31,6 +32,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.call import Call
 from app.models.patient import Patient
@@ -55,16 +57,67 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _run_feedback_analysis(call_id: UUID, practice_id: UUID):
-    """Run feedback analysis in background with its own DB session."""
-    try:
-        from app.database import AsyncSessionLocal
-        from app.services.feedback_service import process_call_feedback
+def _verify_vapi_signature(raw_body: bytes, signature_header: str | None) -> bool:
+    """
+    Verify the HMAC-SHA256 signature sent by Vapi in the X-Vapi-Signature header.
 
-        async with AsyncSessionLocal() as db:
-            await process_call_feedback(db, call_id, practice_id)
-    except Exception as e:
-        logger.warning("background feedback analysis failed for call %s: %s", call_id, e)
+    Returns True if signature is valid or if no secret is configured (graceful skip).
+    Returns False if a secret is configured but signature is missing or invalid.
+    """
+    settings = get_settings()
+    secret = settings.VAPI_WEBHOOK_SECRET
+
+    if not secret:
+        if settings.APP_ENV == "production":
+            logger.error(
+                "vapi_webhook: VAPI_WEBHOOK_SECRET is NOT set in production — "
+                "rejecting ALL webhooks. Set the secret to accept Vapi events."
+            )
+            return False
+        # Dev mode: skip verification with warning
+        logger.warning("vapi_webhook: VAPI_WEBHOOK_SECRET not set — skipping signature check (dev mode)")
+        return True
+
+    if not signature_header:
+        logger.warning("vapi_webhook: missing X-Vapi-Signature header — rejecting request")
+        return False
+
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    if hmac.compare_digest(expected, signature_header):
+        return True
+
+    logger.warning("vapi_webhook: HMAC signature mismatch — rejecting request")
+    return False
+
+
+async def _run_feedback_analysis(call_id: UUID, practice_id: UUID):
+    """Run feedback analysis in background with its own DB session.
+
+    Retries up to 2 times with exponential backoff on transient failures.
+    """
+    import asyncio as _asyncio
+    from app.database import AsyncSessionLocal
+    from app.services.feedback_service import process_call_feedback
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with AsyncSessionLocal() as db:
+                await process_call_feedback(db, call_id, practice_id)
+                await db.commit()
+            return
+        except Exception as e:
+            logger.warning(
+                "background feedback analysis failed for call %s (attempt %d/%d): %s",
+                call_id, attempt, max_attempts, e,
+            )
+            if attempt < max_attempts:
+                await _asyncio.sleep(2 ** attempt)
 
 
 # ---------------------------------------------------------------------------
@@ -131,31 +184,15 @@ async def _resolve_practice_id(
             if practice_id:
                 return practice_id
 
-    # 3. Fallback: first active practice (single-tenant phase)
-    from app.models.practice import Practice
-    from sqlalchemy import select
-
-    stmt = (
-        select(Practice.id)
-        .where(Practice.status == "active")
-        .order_by(Practice.created_at)
-        .limit(1)
+    # 3. No fallback — reject unknown practices to prevent cross-tenant data leaks.
+    #    In single-tenant mode, ensure the Vapi phone number is correctly
+    #    configured in PracticeConfig so resolution works via step 2.
+    logger.error(
+        "_resolve_practice_id: could not resolve practice from call_id=%s or phone number. "
+        "Ensure the Vapi phone number is configured in PracticeConfig.",
+        vapi_call_id,
     )
-    result = await db.execute(stmt)
-    practice_id = result.scalar_one_or_none()
-
-    if not practice_id:
-        # Last resort: any practice at all
-        stmt = select(Practice.id).order_by(Practice.created_at).limit(1)
-        result = await db.execute(stmt)
-        practice_id = result.scalar_one_or_none()
-
-    if practice_id:
-        logger.info("_resolve_practice_id: fallback to practice %s", practice_id)
-    else:
-        logger.error("_resolve_practice_id: no practice found in database")
-
-    return practice_id
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -170,24 +207,49 @@ async def vapi_webhook(
     """
     Receive ALL Vapi webhook events and dispatch by message type.
 
-    This endpoint is unauthenticated -- Vapi calls it directly.
+    Verifies HMAC signature if VAPI_WEBHOOK_SECRET is configured.
     Always returns 200 to prevent Vapi retries.
     """
+    # ------------------------------------------------------------------
+    # 0. Reject oversized payloads before any processing (DoS protection)
+    # ------------------------------------------------------------------
+    MAX_WEBHOOK_BODY_BYTES = 1_000_000  # 1 MB — well above typical Vapi payloads
+    raw_body = await request.body()
+    if len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
+        logger.warning("vapi_webhook: rejected oversized payload (%d bytes)", len(raw_body))
+        return JSONResponse(status_code=413, content={"error": "Payload too large"})
+
+    # ------------------------------------------------------------------
+    # 1. Verify webhook signature (if secret is configured)
+    # ------------------------------------------------------------------
+    signature = request.headers.get("x-vapi-signature")
+
+    if not _verify_vapi_signature(raw_body, signature):
+        logger.warning("vapi_webhook: signature verification failed — dropping request")
+        # Return 200 to avoid leaking whether the endpoint exists or accepts traffic.
+        # Returning 401/403 lets attackers enumerate valid webhook URLs.
+        return JSONResponse(status_code=200, content={})
+
     # ------------------------------------------------------------------
     # 1. Parse raw body (for logging) then as typed schema
     # ------------------------------------------------------------------
     try:
-        body = await request.json()
+        body = json.loads(raw_body)
     except Exception:
-        raw = await request.body()
-        logger.error("vapi_webhook: failed to parse JSON body: %s", raw[:500])
+        logger.error("vapi_webhook: failed to parse JSON body (length=%d)", len(raw_body))
         return JSONResponse(status_code=200, content={})
 
     logger.info(
         "vapi_webhook: received type=%s",
         _safe_get(body, "message", "type", default="unknown"),
     )
-    logger.debug("vapi_webhook: full body: %s", json.dumps(body, default=str)[:2000])
+    # NOTE: Do NOT log full body — it contains PHI (patient names, phone numbers,
+    # insurance info, transcripts). Log only structural metadata.
+    logger.debug(
+        "vapi_webhook: keys=%s, call_id=%s",
+        list(_safe_get(body, "message", default={}).keys()),
+        _safe_get(body, "message", "call", "id", default="n/a"),
+    )
 
     try:
         # Parse into typed model (allows extra fields for forward compat)
@@ -195,7 +257,12 @@ async def vapi_webhook(
         message = webhook.message
     except Exception as e:
         logger.error("vapi_webhook: schema validation failed: %s", e)
-        logger.debug("vapi_webhook: body was: %s", json.dumps(body, default=str)[:2000])
+        # Do NOT log body on validation failure — it may contain PHI
+        logger.debug(
+            "vapi_webhook: body type=%s, keys=%s",
+            _safe_get(body, "message", "type", default="unknown"),
+            list(body.keys()),
+        )
         return JSONResponse(status_code=200, content={})
 
     # ------------------------------------------------------------------
@@ -504,10 +571,11 @@ async def _execute_tool_call(
     Wraps errors so one failing tool does not crash the entire response.
     """
     try:
+        # Log tool name and param keys only — values may contain PHI
         logger.info(
-            "vapi_webhook: executing tool '%s' with params %s (call=%s)",
+            "vapi_webhook: executing tool '%s' param_keys=%s (call=%s)",
             tool_name,
-            json.dumps(params, default=str)[:500],
+            list(params.keys()) if isinstance(params, dict) else "n/a",
             vapi_call_id,
         )
         result = await dispatch_tool_call(
@@ -522,9 +590,10 @@ async def _execute_tool_call(
         logger.exception(
             "vapi_webhook: tool '%s' failed: %s", tool_name, e,
         )
+        # Return generic message to Vapi — don't leak internal errors to AI/caller
         return VapiToolCallResult(
             toolCallId=tool_call_id,
-            result=f"Error executing {tool_name}: {str(e)}",
+            result=f"Sorry, the {tool_name} function encountered an error. Please try again.",
         )
 
 
@@ -559,9 +628,9 @@ async def _handle_function_call(
 
     try:
         logger.info(
-            "vapi_webhook: executing function '%s' with params %s (call=%s)",
+            "vapi_webhook: executing function '%s' with %d params (call=%s)",
             func_name,
-            json.dumps(params, default=str)[:500],
+            len(params) if isinstance(params, dict) else 0,
             vapi_call_id,
         )
         result = await dispatch_tool_call(
@@ -576,9 +645,10 @@ async def _handle_function_call(
         logger.exception(
             "vapi_webhook: function '%s' failed: %s", func_name, e,
         )
+        # Return generic message — don't leak internal errors to AI/caller
         return JSONResponse(
             status_code=200,
-            content={"result": f"Error executing {func_name}: {str(e)}"},
+            content={"result": f"Sorry, the {func_name} function encountered an error. Please try again."},
         )
 
 
@@ -683,34 +753,36 @@ async def _handle_end_of_call_report(
             ended_reason=ended_reason,
         )
 
+        # Single query to get the call record (reused for structured data,
+        # callback flagging, and feedback loop — avoids 3 redundant SELECTs)
+        stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+        result = await db.execute(stmt)
+        call_record = result.scalar_one_or_none()
+
         # Save structured analysis data if available
-        if structured_data or success_evaluation:
+        if call_record and (structured_data or success_evaluation):
             try:
-                stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
-                result = await db.execute(stmt)
-                call_record = result.scalar_one_or_none()
-                if call_record:
-                    if structured_data and isinstance(structured_data, dict):
-                        call_record.structured_data = structured_data
-                        # Extract key fields for quick filtering
-                        if structured_data.get("caller_intent"):
-                            call_record.caller_intent = structured_data["caller_intent"]
-                        if structured_data.get("caller_sentiment"):
-                            call_record.caller_sentiment = structured_data["caller_sentiment"]
-                        if structured_data.get("language"):
-                            lang_map = {"english": "en", "spanish": "es"}
-                            call_record.language = lang_map.get(
-                                structured_data["language"], structured_data["language"][:5]
-                            )
-                    if success_evaluation is not None:
-                        call_record.success_evaluation = str(success_evaluation)
-                    await db.flush()
-                    logger.info(
-                        "vapi_webhook: saved structured analysis for call %s (intent=%s, sentiment=%s)",
-                        vapi_call_id,
-                        structured_data.get("caller_intent") if structured_data else None,
-                        structured_data.get("caller_sentiment") if structured_data else None,
-                    )
+                if structured_data and isinstance(structured_data, dict):
+                    call_record.structured_data = structured_data
+                    # Extract key fields for quick filtering
+                    if structured_data.get("caller_intent"):
+                        call_record.caller_intent = structured_data["caller_intent"]
+                    if structured_data.get("caller_sentiment"):
+                        call_record.caller_sentiment = structured_data["caller_sentiment"]
+                    if structured_data.get("language"):
+                        lang_map = {"english": "en", "spanish": "es"}
+                        call_record.language = lang_map.get(
+                            structured_data["language"], structured_data["language"][:5]
+                        )
+                if success_evaluation is not None:
+                    call_record.success_evaluation = str(success_evaluation)
+                await db.flush()
+                logger.info(
+                    "vapi_webhook: saved structured analysis for call %s (intent=%s, sentiment=%s)",
+                    vapi_call_id,
+                    structured_data.get("caller_intent") if structured_data else None,
+                    structured_data.get("caller_sentiment") if structured_data else None,
+                )
             except Exception as e:
                 logger.warning("vapi_webhook: failed to save structured data: %s", e)
 
@@ -721,13 +793,9 @@ async def _handle_end_of_call_report(
             'assistant-forwarded-call', 'voicemail',
         }
         if ended_reason in CALLBACK_REASONS or (duration is not None and duration < 15):
-            # Flag for callback if we have some caller info
             try:
-                stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
-                result = await db.execute(stmt)
-                call = result.scalar_one_or_none()
-                if call and (call.caller_name or call.caller_phone):
-                    call.callback_needed = True
+                if call_record and (call_record.caller_name or call_record.caller_phone):
+                    call_record.callback_needed = True
                     await db.flush()
                     logger.info("vapi_webhook: flagged call %s for callback (reason=%s)", vapi_call_id, ended_reason)
             except Exception as e:
@@ -735,16 +803,11 @@ async def _handle_end_of_call_report(
 
         # Trigger self-improving feedback loop (non-blocking)
         try:
-            # Get the call record to pass its ID
-            stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
-            result = await db.execute(stmt)
-            call_for_feedback = result.scalar_one_or_none()
-            if call_for_feedback:
+            if call_record:
                 import asyncio
-                from app.services.feedback_service import process_call_feedback
                 # Run feedback analysis in background (don't block webhook response)
                 asyncio.create_task(
-                    _run_feedback_analysis(call_for_feedback.id, call_for_feedback.practice_id)
+                    _run_feedback_analysis(call_record.id, call_record.practice_id)
                 )
         except Exception as e:
             logger.warning("vapi_webhook: failed to trigger feedback loop: %s", e)
@@ -772,14 +835,22 @@ async def vapi_webhook_health():
 # Call listing endpoint (authenticated, practice-scoped)
 # ---------------------------------------------------------------------------
 
-def _ensure_practice(user: User) -> UUID:
-    """Return the user's practice_id or raise 400 if it is None."""
-    if not user.practice_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No practice associated with this user",
-        )
-    return user.practice_id
+def _ensure_practice(user: User, practice_id_override: UUID | None = None) -> UUID:
+    """Return the effective practice_id for the current request.
+
+    - Regular staff: always use their own practice_id (override ignored).
+    - Super admin: use ``practice_id_override`` if provided, otherwise
+      fall back to their own practice_id (which may be None).
+    - Raises 400 if no practice can be resolved at all.
+    """
+    if user.role == "super_admin" and practice_id_override:
+        return practice_id_override
+    if user.practice_id:
+        return user.practice_id
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="No practice associated with this user. Super admins must pass ?practice_id=<uuid>.",
+    )
 
 
 @router.get("/calls", response_model=CallListResponse)
@@ -789,7 +860,8 @@ async def list_calls(
     direction: str | None = Query(None, description="Filter by direction: inbound or outbound"),
     status_filter: str | None = Query(None, alias="status", description="Filter by status: ringing, in-progress, ended"),
     search: str | None = Query(None, description="Search by caller phone number (partial match)"),
-    limit: int = Query(50, ge=1, le=200),
+    practice_id: UUID | None = Query(None, description="Practice ID (super_admin only)"),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
@@ -799,7 +871,7 @@ async def list_calls(
 
     Returns paginated call records with joined patient names.
     """
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id)
 
     # Base filters — always scoped to the user's practice
     filters = [Call.practice_id == practice_id]
@@ -817,17 +889,34 @@ async def list_calls(
             func.coalesce(Call.started_at, Call.created_at) <= to_dt
         )
 
+    # Cap date range to 365 days to prevent expensive full-table scans
+    if from_date and to_date and (to_date - from_date).days > 365:
+        raise HTTPException(status_code=400, detail="Date range cannot exceed 365 days.")
+
     # Direction filter
+    VALID_DIRECTIONS = {"inbound", "outbound"}
     if direction:
+        if direction not in VALID_DIRECTIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid direction. Must be one of: {', '.join(sorted(VALID_DIRECTIONS))}",
+            )
         filters.append(Call.direction == direction)
 
     # Status filter
+    VALID_CALL_STATUSES = {"ringing", "queued", "in-progress", "forwarding", "ended"}
     if status_filter:
+        if status_filter not in VALID_CALL_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Must be one of: {', '.join(sorted(VALID_CALL_STATUSES))}",
+            )
         filters.append(Call.status == status_filter)
 
-    # Phone search (partial match on caller_phone)
+    # Phone search (partial match on caller_phone) — escape ILIKE wildcards
     if search:
-        filters.append(Call.caller_phone.ilike(f"%{search}%"))
+        safe_search = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        filters.append(Call.caller_phone.ilike(f"%{safe_search}%"))
 
     # ------------------------------------------------------------------
     # Total count
@@ -906,13 +995,14 @@ async def list_calls(
 @router.get("/callbacks", response_model=CallbackListResponse)
 async def list_callbacks(
     include_completed: bool = Query(False, description="Include already completed callbacks"),
-    limit: int = Query(50, ge=1, le=200),
+    practice_id: UUID | None = Query(None, description="Practice ID (super_admin only)"),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """List calls that need callbacks (missed/dropped calls with caller info)."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id)
 
     filters = [
         Call.practice_id == practice_id,
@@ -972,11 +1062,12 @@ async def list_callbacks(
 async def update_callback(
     call_id: UUID,
     request: CallbackUpdateRequest,
+    practice_id: UUID | None = Query(None, description="Practice ID (super_admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Mark a callback as completed or add notes."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id)
 
     result = await db.execute(
         select(Call).where(Call.id == call_id, Call.practice_id == practice_id)
@@ -1006,11 +1097,12 @@ async def update_callback(
 
 @router.get("/calls/stats", response_model=CallStatsResponse)
 async def get_call_stats(
+    practice_id: UUID | None = Query(None, description="Practice ID (super_admin only)"),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Get call statistics for the dashboard."""
-    practice_id = _ensure_practice(current_user)
+    practice_id = _ensure_practice(current_user, practice_id)
 
     from datetime import timedelta
 

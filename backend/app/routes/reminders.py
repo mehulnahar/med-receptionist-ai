@@ -124,7 +124,7 @@ async def list_reminders(
     status_filter: Optional[str] = Query(None, alias="status"),
     date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
@@ -142,12 +142,15 @@ async def list_reminders(
             )
         filters.append(AppointmentReminder.status == status_filter)
 
+    dt_from_val = None
+    dt_to_val = None
+
     if date_from:
         try:
-            dt_from = date.fromisoformat(date_from)
+            dt_from_val = date.fromisoformat(date_from)
             filters.append(
                 AppointmentReminder.scheduled_for >= datetime(
-                    dt_from.year, dt_from.month, dt_from.day, tzinfo=timezone.utc,
+                    dt_from_val.year, dt_from_val.month, dt_from_val.day, tzinfo=timezone.utc,
                 )
             )
         except ValueError:
@@ -156,14 +159,21 @@ async def list_reminders(
     if date_to:
         try:
             from datetime import timedelta
-            dt_to = date.fromisoformat(date_to)
+            dt_to_val = date.fromisoformat(date_to)
             filters.append(
                 AppointmentReminder.scheduled_for < datetime(
-                    dt_to.year, dt_to.month, dt_to.day, tzinfo=timezone.utc,
+                    dt_to_val.year, dt_to_val.month, dt_to_val.day, tzinfo=timezone.utc,
                 ) + timedelta(days=1)
             )
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date_to format. Use YYYY-MM-DD.")
+
+    # Validate date ordering and cap range
+    if dt_from_val and dt_to_val:
+        if dt_from_val > dt_to_val:
+            raise HTTPException(status_code=400, detail="date_from cannot be after date_to.")
+        if (dt_to_val - dt_from_val).days > 365:
+            raise HTTPException(status_code=400, detail="Date range cannot exceed 365 days.")
 
     # Count
     count_query = select(func.count(AppointmentReminder.id)).where(and_(*filters))
@@ -336,13 +346,50 @@ async def twilio_sms_reply(
     Webhook endpoint for Twilio incoming SMS replies.
 
     Twilio sends form-encoded data with fields: From, Body, MessageSid, etc.
-    This endpoint is unauthenticated (called by Twilio directly).
+    Validates X-Twilio-Signature to prevent forged requests (e.g. fake CANCEL).
 
     Processes patient replies (CONFIRM, CANCEL, RESCHEDULE) and returns
     a TwiML response to send a reply back to the patient.
     """
     try:
+        # Verify Twilio signature to prevent forged appointment cancellations
+        from app.config import get_settings
+        _settings = get_settings()
+        _twilio_auth = _settings.TWILIO_AUTH_TOKEN
         form_data = await request.form()
+
+        if not _twilio_auth:
+            logger.error("twilio_sms_reply: TWILIO_AUTH_TOKEN not configured — rejecting request")
+            return PlainTextResponse(
+                content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                media_type="application/xml",
+                status_code=500,
+            )
+
+        try:
+            from twilio.request_validator import RequestValidator
+            validator = RequestValidator(_twilio_auth)
+            signature = request.headers.get("X-Twilio-Signature", "")
+            url = str(request.url)
+            params = {k: v for k, v in form_data.items()}
+            if not validator.validate(url, params, signature):
+                logger.warning(
+                    "twilio_sms_reply: invalid Twilio signature from %s",
+                    request.client.host if request.client else "unknown",
+                )
+                return PlainTextResponse(
+                    content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                    media_type="application/xml",
+                    status_code=403,
+                )
+        except ImportError:
+            logger.error("twilio_sms_reply: twilio package not installed — cannot validate signature")
+            return PlainTextResponse(
+                content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                media_type="application/xml",
+                status_code=500,
+            )
+
         from_number = form_data.get("From", "")
         body = form_data.get("Body", "")
         message_sid = form_data.get("MessageSid", "")
@@ -363,11 +410,13 @@ async def twilio_sms_reply(
         result = await handle_sms_reply(db, from_number, body)
 
         # Build TwiML response to reply to the patient
+        from xml.sax.saxutils import escape as xml_escape
         reply_message = result.get("reply_message", "")
         if reply_message:
+            safe_msg = xml_escape(reply_message)
             twiml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
-                f"<Response><Message>{reply_message}</Message></Response>"
+                f"<Response><Message>{safe_msg}</Message></Response>"
             )
         else:
             twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'

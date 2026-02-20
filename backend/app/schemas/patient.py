@@ -9,7 +9,7 @@ class PatientBase(BaseModel):
     last_name: str = Field(..., min_length=1, max_length=255)
     dob: date
     phone: str | None = Field(None, max_length=20)
-    address: str | None = None
+    address: str | None = Field(None, max_length=500)
     insurance_carrier: str | None = Field(None, max_length=255)
     member_id: str | None = Field(None, max_length=100)
     group_number: str | None = Field(None, max_length=100)
@@ -19,7 +19,7 @@ class PatientBase(BaseModel):
         None, pattern="^(workers_comp|no_fault)$"
     )
     language_preference: str | None = Field("en", max_length=5)
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=5000)
 
 
 class PatientCreate(PatientBase):
@@ -31,7 +31,7 @@ class PatientUpdate(BaseModel):
     last_name: str | None = Field(None, min_length=1, max_length=255)
     dob: date | None = None
     phone: str | None = Field(None, max_length=20)
-    address: str | None = None
+    address: str | None = Field(None, max_length=500)
     insurance_carrier: str | None = Field(None, max_length=255)
     member_id: str | None = Field(None, max_length=100)
     group_number: str | None = Field(None, max_length=100)
@@ -41,7 +41,7 @@ class PatientUpdate(BaseModel):
         None, pattern="^(workers_comp|no_fault)$"
     )
     language_preference: str | None = Field(None, max_length=5)
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=5000)
 
 
 class PatientResponse(PatientBase):

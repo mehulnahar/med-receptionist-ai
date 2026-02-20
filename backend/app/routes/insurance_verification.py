@@ -1,10 +1,13 @@
 """Insurance verification endpoints — eligibility checks, history, and carrier lookup."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models.user import User
@@ -114,16 +117,23 @@ async def verify_insurance(
             )
 
     # Call the insurance service with proper arguments
-    eligibility_result = await check_eligibility(
-        db=db,
-        practice_id=practice_id,
-        patient_id=patient.id,
-        carrier_name=request.carrier_name,
-        member_id=request.member_id,
-        first_name=patient.first_name,
-        last_name=patient.last_name,
-        dob=patient.dob,
-    )
+    try:
+        eligibility_result = await check_eligibility(
+            db=db,
+            practice_id=practice_id,
+            patient_id=patient.id,
+            carrier_name=request.carrier_name,
+            member_id=request.member_id,
+            first_name=patient.first_name,
+            last_name=patient.last_name,
+            dob=patient.dob,
+        )
+    except Exception as exc:
+        logger.exception("Insurance eligibility check failed for patient %s", patient.id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Insurance verification service is temporarily unavailable. Please try again later.",
+        ) from exc
 
     # The service returns a dict; now fetch the latest verification record
     # for this patient to build the response from the ORM model

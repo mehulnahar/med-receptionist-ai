@@ -12,8 +12,8 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy import select, desc, and_
+from pydantic import BaseModel, Field
+from sqlalchemy import select, desc, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -53,9 +53,14 @@ class RefillResponse(BaseModel):
         from_attributes = True
 
 
+class RefillListResponse(BaseModel):
+    refills: list[RefillResponse]
+    total: int
+
+
 class UpdateStatusRequest(BaseModel):
     status: str  # in_review, approved, denied, completed
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=2000)
 
 
 # ---------------------------------------------------------------------------
@@ -78,12 +83,12 @@ VALID_STATUSES = {"pending", "in_review", "approved", "denied", "completed"}
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/", response_model=list[RefillResponse])
+@router.get("/", response_model=RefillListResponse)
 async def list_refill_requests(
     status_filter: Optional[str] = Query(None, alias="status"),
     date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
@@ -101,22 +106,38 @@ async def list_refill_requests(
             )
         filters.append(RefillRequest.status == status_filter)
 
+    dt_from_val = None
+    dt_to_val = None
+
     if date_from:
         try:
             from datetime import date as date_type
-            dt_from = date_type.fromisoformat(date_from)
-            filters.append(RefillRequest.created_at >= datetime(dt_from.year, dt_from.month, dt_from.day, tzinfo=timezone.utc))
+            dt_from_val = date_type.fromisoformat(date_from)
+            filters.append(RefillRequest.created_at >= datetime(dt_from_val.year, dt_from_val.month, dt_from_val.day, tzinfo=timezone.utc))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date_from format. Use YYYY-MM-DD.")
 
     if date_to:
         try:
             from datetime import date as date_type, timedelta
-            dt_to = date_type.fromisoformat(date_to)
+            dt_to_val = date_type.fromisoformat(date_to)
             # Include the entire end date
-            filters.append(RefillRequest.created_at < datetime(dt_to.year, dt_to.month, dt_to.day, tzinfo=timezone.utc) + timedelta(days=1))
+            filters.append(RefillRequest.created_at < datetime(dt_to_val.year, dt_to_val.month, dt_to_val.day, tzinfo=timezone.utc) + timedelta(days=1))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date_to format. Use YYYY-MM-DD.")
+
+    # Validate date ordering and cap range
+    if dt_from_val and dt_to_val:
+        if dt_from_val > dt_to_val:
+            raise HTTPException(status_code=400, detail="date_from cannot be after date_to.")
+        if (dt_to_val - dt_from_val).days > 365:
+            raise HTTPException(status_code=400, detail="Date range cannot exceed 365 days.")
+
+    # Total count for pagination
+    count_result = await db.execute(
+        select(func.count(RefillRequest.id)).where(and_(*filters))
+    )
+    total = count_result.scalar_one()
 
     result = await db.execute(
         select(RefillRequest)
@@ -126,7 +147,10 @@ async def list_refill_requests(
         .offset(offset)
     )
 
-    return [RefillResponse.model_validate(r) for r in result.scalars().all()]
+    return RefillListResponse(
+        refills=[RefillResponse.model_validate(r) for r in result.scalars().all()],
+        total=total,
+    )
 
 
 @router.patch("/{refill_id}/status", response_model=RefillResponse)
@@ -166,5 +190,7 @@ async def update_refill_status(
         refill.notes = request.notes
 
     await db.flush()
+    await db.commit()
+    await db.refresh(refill)
 
     return RefillResponse.model_validate(refill)

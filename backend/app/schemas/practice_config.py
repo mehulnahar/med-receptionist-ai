@@ -1,7 +1,20 @@
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_serializer, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Any
+
+_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
+
+
+def _mask_secret(value: str | None) -> str | None:
+    """Mask a secret, showing only the last 4 characters."""
+    if not value:
+        return None
+    if len(value) <= 4:
+        return "****"
+    return "*" * (len(value) - 4) + value[-4:]
 
 
 class PracticeConfigResponse(BaseModel):
@@ -32,7 +45,14 @@ class PracticeConfigResponse(BaseModel):
     # Insurance - Stedi
     stedi_api_key: str | None = None
     stedi_enabled: bool = False
+
     insurance_verification_on_call: bool = True
+
+    # Mask sensitive credentials in API responses
+    @field_serializer("twilio_auth_token", "vapi_api_key", "stedi_api_key")
+    @classmethod
+    def mask_secrets(cls, v: str | None) -> str | None:
+        return _mask_secret(v)
 
     # Languages
     languages: list[str] = Field(default_factory=lambda: ["en"])
@@ -129,3 +149,10 @@ class PracticeConfigUpdate(BaseModel):
     system_prompt: str | None = None
     fallback_message: str | None = None
     max_retries: int | None = Field(None, ge=1, le=10)
+
+    @field_validator("transfer_number")
+    @classmethod
+    def validate_transfer_number(cls, v: str | None) -> str | None:
+        if v is not None and not _PHONE_PATTERN.match(v):
+            raise ValueError("transfer_number must be in E.164 format, e.g. '+12125551234'")
+        return v

@@ -2,7 +2,7 @@
 conversion, call outcomes, appointment types, and combined overview."""
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -33,6 +33,9 @@ MISSED_OUTCOMES = {
 BOOKING_INTENTS = {"book", "new_patient", "schedule"}
 
 
+MAX_DATE_RANGE_DAYS = 180
+
+
 def _default_date_range(
     from_date: Optional[str],
     to_date: Optional[str],
@@ -41,9 +44,37 @@ def _default_date_range(
     """Parse optional date strings into a (start, end) date range.
 
     Falls back to the last *days* days when values are not provided.
+    Caps the range at MAX_DATE_RANGE_DAYS to prevent unbounded queries.
+    Raises HTTPException on invalid date format.
     """
-    end = date.fromisoformat(to_date) if to_date else date.today()
-    start = date.fromisoformat(from_date) if from_date else end - timedelta(days=days)
+    today = datetime.now(timezone.utc).date()
+
+    try:
+        end = date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid to_date format. Use YYYY-MM-DD.")
+
+    try:
+        start = date.fromisoformat(from_date) if from_date else end - timedelta(days=days)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid from_date format. Use YYYY-MM-DD.")
+
+    # Cap to today — future analytics data doesn't exist
+    if end > today:
+        end = today
+
+    if start > end:
+        raise HTTPException(
+            status_code=400,
+            detail=f"from_date ({start}) cannot be after to_date ({end}).",
+        )
+
+    if (end - start).days > MAX_DATE_RANGE_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Date range cannot exceed {MAX_DATE_RANGE_DAYS} days.",
+        )
+
     return start, end
 
 
@@ -226,8 +257,8 @@ async def get_booking_conversion(
             and_(
                 Appointment.practice_id == practice_id,
                 Appointment.booked_by == "ai",
-                Appointment.created_at >= datetime.combine(start, datetime.min.time()),
-                Appointment.created_at <= datetime.combine(end, datetime.max.time()),
+                Appointment.created_at >= datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
+                Appointment.created_at <= datetime.combine(end, datetime.max.time(), tzinfo=timezone.utc),
             )
         )
     )
@@ -242,8 +273,8 @@ async def get_booking_conversion(
                 Appointment.practice_id == practice_id,
                 Appointment.booked_by == "ai",
                 Appointment.status == "confirmed",
-                Appointment.created_at >= datetime.combine(start, datetime.min.time()),
-                Appointment.created_at <= datetime.combine(end, datetime.max.time()),
+                Appointment.created_at >= datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
+                Appointment.created_at <= datetime.combine(end, datetime.max.time(), tzinfo=timezone.utc),
             )
         )
     )
@@ -258,8 +289,8 @@ async def get_booking_conversion(
                 Appointment.practice_id == practice_id,
                 Appointment.booked_by == "ai",
                 Appointment.status == "completed",
-                Appointment.created_at >= datetime.combine(start, datetime.min.time()),
-                Appointment.created_at <= datetime.combine(end, datetime.max.time()),
+                Appointment.created_at >= datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
+                Appointment.created_at <= datetime.combine(end, datetime.max.time(), tzinfo=timezone.utc),
             )
         )
     )
@@ -401,11 +432,15 @@ async def get_appointment_type_stats(
 # ---------------------------------------------------------------------------
 
 
+VALID_PERIODS = {"today", "week", "month"}
+
+
 @router.get("/overview")
 async def get_overview(
     period: Optional[str] = Query(
         "month",
         description="Time period: today, week, or month",
+        pattern="^(today|week|month)$",
     ),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
@@ -413,13 +448,18 @@ async def get_overview(
     """Combined overview for the dashboard header."""
     practice_id = _ensure_practice(current_user)
 
-    today = date.today()
+    if period not in VALID_PERIODS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid period. Must be one of: {', '.join(sorted(VALID_PERIODS))}",
+        )
+
+    today = datetime.now(timezone.utc).date()
     if period == "today":
         start = today
     elif period == "week":
         start = today - timedelta(days=7)
     else:
-        period = "month"
         start = today - timedelta(days=30)
     end = today
 
@@ -458,8 +498,8 @@ async def get_overview(
     # --- Patients ---
     patient_filter = and_(
         Patient.practice_id == practice_id,
-        Patient.created_at >= datetime.combine(start, datetime.min.time()),
-        Patient.created_at <= datetime.combine(end, datetime.max.time()),
+        Patient.created_at >= datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
+        Patient.created_at <= datetime.combine(end, datetime.max.time(), tzinfo=timezone.utc),
     )
 
     new_patients_stmt = (

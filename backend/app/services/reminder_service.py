@@ -35,12 +35,12 @@ MAX_SEND_ATTEMPTS = 3
 REMINDER_TEMPLATES = {
     "en": (
         "Hi {patient_name}, this is a reminder of your appointment at "
-        "Dr. Stefanides' office on {date} at {time}. "
+        "{practice_name} on {date} at {time}. "
         "Reply CONFIRM to confirm, CANCEL to cancel, or RESCHEDULE to reschedule."
     ),
     "es": (
-        "Hola {patient_name}, este es un recordatorio de su cita en la "
-        "oficina del Dr. Stefanides el {date} a las {time}. "
+        "Hola {patient_name}, este es un recordatorio de su cita en "
+        "{practice_name} el {date} a las {time}. "
         "Responda CONFIRMAR para confirmar, CANCELAR para cancelar, "
         "o REPROGRAMAR para reprogramar."
     ),
@@ -117,6 +117,7 @@ async def schedule_reminders(
         template = REMINDER_TEMPLATES.get(language) or REMINDER_TEMPLATES["en"]
         message_content = template.format(
             patient_name=patient_name,
+            practice_name=practice.name,
             date=formatted_date,
             time=formatted_time,
         )
@@ -286,6 +287,15 @@ async def process_pending_reminders(db: AsyncSession) -> int:
     sent_count = 0
 
     try:
+        # Exponential backoff: after a failed attempt, wait 2^attempts minutes
+        # before retrying. We use updated_at as the proxy for "last attempt time".
+        # Attempt 0 (first try): scheduled_for <= now is sufficient.
+        # Attempt 1 retry: wait >= 2 min since last attempt (updated_at).
+        # Attempt 2 retry: wait >= 4 min since last attempt.
+        # The filter uses a conservative 2-minute minimum backoff — the actual
+        # per-reminder backoff check is done in the loop below.
+        backoff_floor = now - timedelta(minutes=2)
+
         stmt = (
             select(AppointmentReminder)
             .where(
@@ -310,6 +320,12 @@ async def process_pending_reminders(db: AsyncSession) -> int:
         )
 
         for reminder in reminders:
+            # Exponential backoff: skip if not enough time since last failed attempt
+            if reminder.attempts > 0 and reminder.updated_at:
+                backoff_minutes = 2 ** reminder.attempts  # 2, 4, 8 ...
+                retry_after = reminder.updated_at + timedelta(minutes=backoff_minutes)
+                if now < retry_after:
+                    continue
             # Double-check the appointment is still active
             appointment: Appointment = reminder.appointment
             if appointment and appointment.status in ("cancelled", "no_show"):

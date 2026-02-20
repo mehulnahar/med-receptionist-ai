@@ -1,10 +1,17 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import api from '../services/api'
+import api, { setAccessToken, getAccessToken, clearAccessToken } from '../services/api'
 
 const AuthContext = createContext(null)
 
 /**
  * AuthProvider — wraps the app and provides authentication state + actions.
+ *
+ * Security: Access tokens are kept in-memory only (not localStorage) to prevent
+ * XSS-based token theft. Refresh tokens are stored in httpOnly secure cookies
+ * set by the backend — not accessible to JavaScript at all.
+ *
+ * Trade-off: Refreshing the tab loses the access token, but the auto-refresh
+ * interceptor in api.js will silently obtain a new one via the cookie.
  *
  * State shape:
  *   user     — { id, email, role, practice_id, first_name, last_name } | null
@@ -17,7 +24,7 @@ const AuthContext = createContext(null)
  */
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [token, setToken] = useState(() => localStorage.getItem('access_token'))
+  const [token, setToken] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -26,10 +33,10 @@ export function AuthProvider({ children }) {
    * Returns the user object on success, or null on failure.
    * On 429 (rate limit), retries up to 3 times with exponential backoff.
    */
-  const fetchUser = useCallback(async (retries = 3) => {
+  const fetchUser = useCallback(async (retries = 3, signal) => {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const response = await api.get('/auth/me')
+        const response = await api.get('/auth/me', { signal })
         const userData = response.data
         // Backend returns a single "name" field — split into first/last for the UI
         const nameParts = (userData.name || '').trim().split(/\s+/)
@@ -43,21 +50,22 @@ export function AuthProvider({ children }) {
           name: userData.name,
           first_name,
           last_name,
+          password_change_required: userData.password_change_required || false,
         })
         return userData
       } catch (err) {
+        // If the request was intentionally aborted, bail out silently
+        if (err.name === 'CanceledError' || signal?.aborted) {
+          return null
+        }
         // On 429 (rate limit), retry after a delay instead of treating as auth failure
         if (err.response && err.response.status === 429 && attempt < retries) {
           const delay = Math.min(2000 * Math.pow(2, attempt), 10000)
           await new Promise(resolve => setTimeout(resolve, delay))
           continue
         }
-        // If the token is invalid / expired the axios interceptor in api.js
-        // will already clear localStorage and redirect on 401, but we also
-        // clean up local state here for completeness.
         if (err.response && err.response.status === 401) {
-          localStorage.removeItem('access_token')
-          localStorage.removeItem('refresh_token')
+          clearAccessToken()
           setToken(null)
           setUser(null)
         }
@@ -68,27 +76,47 @@ export function AuthProvider({ children }) {
   }, [])
 
   /**
-   * On mount: if a token exists in localStorage, try to restore the session
-   * by fetching the current user profile.
+   * On mount: try to restore the session by refreshing the access token
+   * via the httpOnly refresh cookie. If the cookie exists and is valid,
+   * the backend will return a new access token.
    */
   useEffect(() => {
+    const abortController = new AbortController()
     let cancelled = false
 
     const restoreSession = async () => {
-      if (!token) {
-        setLoading(false)
-        return
-      }
+      try {
+        // Try to get a new access token using the refresh cookie
+        const { data } = await api.post('/auth/refresh', {}, { signal: abortController.signal })
+        if (data.access_token) {
+          setAccessToken(data.access_token)
+          setToken(data.access_token)
 
-      const userData = await fetchUser()
+          const userData = await fetchUser(3, abortController.signal)
+          if (!cancelled && !userData) {
+            clearAccessToken()
+            setToken(null)
+            setUser(null)
+          }
+        }
+      } catch (err) {
+        // Ignore abort errors
+        if (err?.name === 'CanceledError' || abortController.signal.aborted) return
 
-      if (!cancelled) {
-        if (!userData) {
-          // Token was invalid — clean up
+        // Only clear auth state on definitive auth failures (401/403).
+        // Network errors or 5xx mean the server is temporarily unreachable —
+        // don't log the user out for transient issues.
+        const status = err?.response?.status
+        const isAuthFailure = status === 401 || status === 403
+        if (!cancelled && isAuthFailure) {
+          clearAccessToken()
           setToken(null)
           setUser(null)
         }
-        setLoading(false)
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
@@ -96,14 +124,16 @@ export function AuthProvider({ children }) {
 
     return () => {
       cancelled = true
+      abortController.abort()
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchUser])
 
   /**
    * login(email, password)
    *
-   * 1. POST /api/auth/login  -> receive { access_token, refresh_token?, token_type }
-   * 2. Store access_token in localStorage
+   * 1. POST /api/auth/login -> receive { access_token, token_type, user }
+   *    (refresh_token is set as httpOnly cookie by the backend)
+   * 2. Store access_token in memory only
    * 3. Fetch user profile from /api/auth/me
    */
   const login = useCallback(async (email, password) => {
@@ -112,14 +142,10 @@ export function AuthProvider({ children }) {
 
     try {
       const response = await api.post('/auth/login', { email, password })
-      const { access_token, refresh_token } = response.data
+      const { access_token } = response.data
 
-      // Persist tokens
-      localStorage.setItem('access_token', access_token)
-      if (refresh_token) {
-        localStorage.setItem('refresh_token', refresh_token)
-      }
-
+      // Store access token in memory only (NOT localStorage)
+      setAccessToken(access_token)
       setToken(access_token)
 
       // Now fetch the full user profile
@@ -155,8 +181,7 @@ export function AuthProvider({ children }) {
       }
 
       // Clean up on failure
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
+      clearAccessToken()
       setToken(null)
       setUser(null)
       setError(message)
@@ -167,11 +192,15 @@ export function AuthProvider({ children }) {
   }, [fetchUser])
 
   /**
-   * logout() — clear all auth state and localStorage.
+   * logout() — clear all auth state and call backend to clear refresh cookie.
    */
-  const logout = useCallback(() => {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // Ignore errors — we clear client state regardless
+    }
+    clearAccessToken()
     setToken(null)
     setUser(null)
     setError(null)

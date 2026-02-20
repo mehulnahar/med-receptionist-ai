@@ -4,8 +4,8 @@ import logging
 from uuid import UUID
 from datetime import date, time as time_type
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -16,6 +16,7 @@ from app.models.appointment_type import AppointmentType
 
 logger = logging.getLogger(__name__)
 from app.schemas.appointment import (
+    APPOINTMENT_STATUSES,
     BookAppointmentRequest,
     AppointmentResponse,
     AppointmentListResponse,
@@ -94,9 +95,38 @@ async def book_appointment_endpoint(
     request: BookAppointmentRequest,
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
+    x_idempotency_key: str | None = Header(None),
 ):
-    """Book a new appointment for a patient."""
+    """Book a new appointment for a patient.
+
+    Accepts an optional ``X-Idempotency-Key`` header. When provided, if an
+    appointment already exists for the same practice + call_id + patient +
+    date + time, the existing appointment is returned instead of creating a
+    duplicate.
+    """
     practice_id = _ensure_practice(current_user)
+
+    # Idempotency check: if a key is provided, look for a matching appointment.
+    # Works with or without call_id — key uniqueness is based on
+    # practice + patient + date + time (+ call_id when present).
+    if x_idempotency_key:
+        idem_filters = [
+            Appointment.practice_id == practice_id,
+            Appointment.patient_id == request.patient_id,
+            Appointment.date == request.date,
+            Appointment.time == request.time,
+        ]
+        if request.call_id:
+            idem_filters.append(Appointment.call_id == request.call_id)
+        existing_stmt = select(Appointment).where(and_(*idem_filters)).limit(1)
+        existing_result = await db.execute(existing_stmt)
+        existing_appt = existing_result.scalar_one_or_none()
+        if existing_appt:
+            logger.info(
+                "Idempotent booking: returning existing appointment %s for key=%s",
+                existing_appt.id, x_idempotency_key,
+            )
+            return AppointmentResponse(**build_appointment_response(existing_appt))
 
     try:
         appt = await book_appointment(
@@ -141,6 +171,9 @@ async def book_appointment_endpoint(
     except Exception as reminder_err:
         logger.warning("Reminder auto-schedule failed for appointment %s: %s", appt.id, reminder_err)
 
+    # Refresh so response reflects SMS/reminder updates (e.g. sms_confirmation_sent)
+    await db.refresh(appt)
+
     return AppointmentResponse(**build_appointment_response(appt))
 
 
@@ -155,13 +188,19 @@ async def list_appointments(
     to_date: date | None = Query(None, description="Filter up to this date"),
     patient_id: UUID | None = Query(None, description="Filter by patient"),
     appointment_status: str | None = Query(None, alias="status", description="Filter by status"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """List appointments for the current practice with optional filters."""
     practice_id = _ensure_practice(current_user)
+
+    if appointment_status and appointment_status not in APPOINTMENT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status. Must be one of: {', '.join(APPOINTMENT_STATUSES)}",
+        )
 
     try:
         appointments, total = await get_appointments(

@@ -15,7 +15,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, desc, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,23 +60,37 @@ class WaitlistEntryResponse(BaseModel):
         from_attributes = True
 
 
-class AddWaitlistRequest(BaseModel):
+class _DateTimeRangeValidator:
+    """Mixin for cross-field date/time range validation."""
+
+    @model_validator(mode="after")
+    def validate_ranges(self):
+        if self.preferred_date_start and self.preferred_date_end:
+            if self.preferred_date_start > self.preferred_date_end:
+                raise ValueError("preferred_date_start cannot be after preferred_date_end")
+        if self.preferred_time_start and self.preferred_time_end:
+            if self.preferred_time_start > self.preferred_time_end:
+                raise ValueError("preferred_time_start cannot be after preferred_time_end")
+        return self
+
+
+class AddWaitlistRequest(_DateTimeRangeValidator, BaseModel):
     patient_name: str = Field(..., min_length=1, max_length=255)
-    patient_phone: str = Field(..., min_length=1, max_length=20)
+    patient_phone: str = Field(..., min_length=1, max_length=20, pattern=r"^\+[1-9]\d{1,14}$")
     patient_id: UUID | None = None
     appointment_type_id: UUID | None = None
     preferred_date_start: date | None = None
     preferred_date_end: date | None = None
     preferred_time_start: time | None = None
     preferred_time_end: time | None = None
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=2000)
     priority: int = Field(default=3, ge=1, le=5)
 
 
-class UpdateWaitlistRequest(BaseModel):
+class UpdateWaitlistRequest(_DateTimeRangeValidator, BaseModel):
     status: str | None = None
     priority: int | None = Field(default=None, ge=1, le=5)
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=2000)
     preferred_date_start: date | None = None
     preferred_date_end: date | None = None
     preferred_time_start: time | None = None
@@ -134,7 +148,7 @@ async def list_waitlist_entries(
     patient_name: Optional[str] = Query(None, description="Filter by patient name (partial match)"),
     date_from: Optional[str] = Query(None, description="Filter entries created from this date (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Filter entries created up to this date (YYYY-MM-DD)"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
@@ -153,14 +167,18 @@ async def list_waitlist_entries(
         filters.append(WaitlistEntry.status == status_filter)
 
     if patient_name:
-        filters.append(WaitlistEntry.patient_name.ilike(f"%{patient_name}%"))
+        safe_name = patient_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        filters.append(WaitlistEntry.patient_name.ilike(f"%{safe_name}%"))
+
+    dt_from_val = None
+    dt_to_val = None
 
     if date_from:
         try:
-            dt_from = date.fromisoformat(date_from)
+            dt_from_val = date.fromisoformat(date_from)
             filters.append(
                 WaitlistEntry.created_at >= datetime(
-                    dt_from.year, dt_from.month, dt_from.day, tzinfo=timezone.utc
+                    dt_from_val.year, dt_from_val.month, dt_from_val.day, tzinfo=timezone.utc
                 )
             )
         except ValueError:
@@ -169,14 +187,21 @@ async def list_waitlist_entries(
     if date_to:
         try:
             from datetime import timedelta
-            dt_to = date.fromisoformat(date_to)
+            dt_to_val = date.fromisoformat(date_to)
             filters.append(
                 WaitlistEntry.created_at < datetime(
-                    dt_to.year, dt_to.month, dt_to.day, tzinfo=timezone.utc
+                    dt_to_val.year, dt_to_val.month, dt_to_val.day, tzinfo=timezone.utc
                 ) + timedelta(days=1)
             )
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date_to format. Use YYYY-MM-DD.")
+
+    # Validate date ordering and cap range
+    if dt_from_val and dt_to_val:
+        if dt_from_val > dt_to_val:
+            raise HTTPException(status_code=400, detail="date_from cannot be after date_to.")
+        if (dt_to_val - dt_from_val).days > 365:
+            raise HTTPException(status_code=400, detail="Date range cannot exceed 365 days.")
 
     result = await db.execute(
         select(WaitlistEntry)
@@ -266,6 +291,7 @@ async def update_waitlist_entry(
         entry.preferred_time_end = request.preferred_time_end
 
     await db.flush()
+    await db.commit()
     await db.refresh(entry)
 
     return WaitlistEntryResponse.model_validate(entry)
@@ -295,3 +321,4 @@ async def delete_waitlist_entry(
 
     await db.delete(entry)
     await db.flush()
+    await db.commit()

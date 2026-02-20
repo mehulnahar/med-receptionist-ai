@@ -92,7 +92,7 @@ export default function Layout() {
   // Shared sidebar content renderer
   function renderNav(isMobile = false) {
     return (
-      <nav className="flex-1 py-4 space-y-1 px-3 overflow-y-auto">
+      <nav aria-label="Main navigation" className="flex-1 py-4 space-y-1 px-3 overflow-y-auto">
         {filteredNav.map((item) => {
           const Icon = item.icon
           const isActive =
@@ -112,6 +112,7 @@ export default function Layout() {
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               )}
               title={collapsed && !isMobile ? item.label : undefined}
+              aria-current={isActive ? 'page' : undefined}
             >
               <Icon
                 className={clsx(
@@ -132,6 +133,14 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      {/* Skip to main content — visible only on keyboard focus */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary-600 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm focus:font-medium"
+      >
+        Skip to main content
+      </a>
+
       {/* ============================================================
           MOBILE OVERLAY
           ============================================================ */}
@@ -164,8 +173,9 @@ export default function Layout() {
           <button
             onClick={() => setMobileOpen(false)}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            aria-label="Close navigation menu"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -296,8 +306,9 @@ export default function Layout() {
               <button
                 onClick={() => setMobileOpen(true)}
                 className="p-2 -ml-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors md:hidden"
+                aria-label="Open navigation menu"
               >
-                <Menu className="w-5 h-5" />
+                <Menu className="w-5 h-5" aria-hidden="true" />
               </button>
               <h1 className="text-lg font-semibold text-gray-900 hidden sm:block">
                 AI Medical Receptionist
@@ -330,7 +341,7 @@ export default function Layout() {
         </header>
 
         {/* ---- Page content ---- */}
-        <main className="flex-1 p-4 sm:p-6">
+        <main id="main-content" className="flex-1 p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

@@ -23,26 +23,37 @@ router = APIRouter()
 
 @router.get("/", response_model=InsuranceCarrierListResponse)
 async def list_insurance_carriers(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all insurance carriers for the current practice."""
+    """List insurance carriers for the current practice (paginated)."""
     if not current_user.practice_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No practice associated with this user",
         )
 
+    base_filter = InsuranceCarrier.practice_id == current_user.practice_id
+
+    total_result = await db.execute(
+        select(func.count(InsuranceCarrier.id)).where(base_filter)
+    )
+    total = total_result.scalar_one()
+
     result = await db.execute(
         select(InsuranceCarrier)
-        .where(InsuranceCarrier.practice_id == current_user.practice_id)
+        .where(base_filter)
         .order_by(InsuranceCarrier.name)
+        .limit(limit)
+        .offset(offset)
     )
     carriers = result.scalars().all()
 
     return InsuranceCarrierListResponse(
         carriers=[InsuranceCarrierResponse.model_validate(c) for c in carriers],
-        total=len(carriers),
+        total=total,
     )
 
 
@@ -57,6 +68,19 @@ async def create_insurance_carrier(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No practice associated with this user",
+        )
+
+    # Check for duplicate carrier name within the practice
+    existing = await db.execute(
+        select(InsuranceCarrier).where(
+            InsuranceCarrier.practice_id == current_user.practice_id,
+            func.lower(InsuranceCarrier.name) == request.name.strip().lower(),
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Insurance carrier '{request.name}' already exists in this practice",
         )
 
     carrier_data = request.model_dump()

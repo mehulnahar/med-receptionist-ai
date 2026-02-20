@@ -3,9 +3,11 @@ import react from '@vitejs/plugin-react'
 
 const isTest = process.env.NODE_ENV === 'test' || process.argv.includes('--mode') && process.argv.includes('test')
 
+// Never hardcode production URLs — use VITE_TEST_API_URL env var for test targets
+// to prevent accidentally sending test data to production.
 const apiTarget = isTest
-  ? 'https://backend-api-production-990c.up.railway.app'
-  : 'http://localhost:8001'
+  ? (process.env.VITE_TEST_API_URL || 'http://localhost:8000')
+  : (process.env.VITE_DEV_API_TARGET || 'http://localhost:8000')
 
 export default defineConfig({
   plugins: [react()],
@@ -16,10 +18,10 @@ export default defineConfig({
       '/api': {
         target: apiTarget,
         changeOrigin: true,
-        secure: true,
+        secure: isTest,
       },
       '/ws': {
-        target: 'ws://localhost:8001',
+        target: process.env.VITE_DEV_WS_TARGET || 'ws://localhost:8000',
         ws: true
       }
     }

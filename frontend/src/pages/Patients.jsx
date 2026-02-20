@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import {
@@ -504,6 +504,12 @@ function PatientDetailPanel({ patientId, onClose, onUpdated }) {
   // Edit mode
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({})
+  const saveTimerRef = useRef(null)
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -620,7 +626,7 @@ function PatientDetailPanel({ patientId, onClose, onUpdated }) {
       setSaveSuccess(true)
       if (onUpdated) onUpdated()
       // Clear success message after 3 seconds
-      setTimeout(() => setSaveSuccess(false), 3000)
+      saveTimerRef.current = setTimeout(() => setSaveSuccess(false), 3000)
     } catch (err) {
       setSaveError(
         err.response?.data?.detail ||

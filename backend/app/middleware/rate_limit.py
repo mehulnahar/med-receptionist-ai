@@ -2,7 +2,14 @@
 In-memory rate limiting middleware.
 
 Uses a dict of {IP -> list[timestamp]} to track requests per IP.
-Designed for single-instance deployment (Railway).
+
+**Important**: This middleware is per-process.  When running behind nginx
+(production) nginx's ``limit_req`` zones handle rate limiting across all
+workers.  This middleware serves as a **secondary defence** for
+single-worker dev mode or direct-to-backend access.
+
+Set the environment variable ``RATE_LIMIT_ENABLED=false`` (or ``0``) to
+disable this middleware entirely (e.g., when nginx is the sole rate limiter).
 """
 
 import logging
@@ -25,33 +32,61 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     Per-IP rate limiter with endpoint-specific limits.
 
     Limits (requests per minute):
-    - /api/auth/*     : RATE_LIMIT_AUTH     (default 10)
+    - /api/auth/*     : RATE_LIMIT_AUTH     (default 20)
+    - /api/admin/*    : RATE_LIMIT_ADMIN    (default 30)
     - /api/webhooks/* : RATE_LIMIT_WEBHOOKS (default 200)
     - everything else : RATE_LIMIT_GENERAL  (default 100)
 
     /api/health is always exempt from rate limiting.
+
+    NOTE: This is per-worker in-memory state and will NOT be shared across
+    Uvicorn workers.  In production, nginx ``limit_req`` is the primary
+    rate limiter; this middleware acts as a secondary safety net.
     """
 
     def __init__(self, app):
         super().__init__(app)
         # {ip: [timestamp, timestamp, ...]}
         self._requests: dict[str, list[float]] = defaultdict(list)
-        self._total_requests: int = 0
-        self._cleanup_threshold: int = 1000
         self._window_seconds: float = 60.0
         self._stale_seconds: float = 300.0  # 5 minutes
+        self._last_cleanup: float = time.monotonic()
+        self._cleanup_interval: float = 60.0  # Time-based cleanup every 60 seconds
+        # Allow disabling via env var when nginx handles rate limiting
+        self._enabled = self._resolve_enabled()
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _resolve_enabled() -> bool:
+        """Check RATE_LIMIT_ENABLED env var (defaults to True)."""
+        import os
+        val = os.environ.get("RATE_LIMIT_ENABLED", "true").strip().lower()
+        return val not in ("false", "0", "no", "off")
+
     def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP, respecting X-Forwarded-For behind Railway proxy."""
+        """Extract client IP, respecting X-Forwarded-For behind proxy.
+
+        Falls back to X-Real-IP (nginx) or request.client.host.
+        Uses a per-request hash when no IP can be determined to avoid
+        lumping all unknown clients into a single rate-limit bucket.
+        """
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            # First IP in the chain is the real client
             return forwarded.split(",")[0].strip()
-        return request.client.host if request.client else "unknown"
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+        if request.client and request.client.host:
+            return request.client.host
+        # Last resort: hash of user-agent + accept-language to partition unknowns
+        import hashlib
+        fingerprint = (
+            request.headers.get("user-agent", "") + request.headers.get("accept-language", "")
+        )
+        return "unknown-" + hashlib.md5(fingerprint.encode()).hexdigest()[:8]
 
     def _get_limit_for_path(self, path: str) -> int:
         """Return the per-minute rate limit based on the request path.
@@ -67,6 +102,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return settings.RATE_LIMIT_AUTH
         if path.startswith("/api/webhooks"):
             return settings.RATE_LIMIT_WEBHOOKS
+        if path.startswith("/api/admin"):
+            return settings.RATE_LIMIT_ADMIN
         return settings.RATE_LIMIT_GENERAL
 
     def _cleanup_stale_entries(self) -> None:
@@ -88,6 +125,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
+        # Skip entirely when disabled (nginx handles rate limiting in production)
+        if not self._enabled:
+            return await call_next(request)
+
         # Health check is always exempt
         if path == "/api/health":
             return await call_next(request)
@@ -97,10 +138,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         limit = self._get_limit_for_path(path)
         window_start = now - self._window_seconds
 
-        # Periodic cleanup
-        self._total_requests += 1
-        if self._total_requests % self._cleanup_threshold == 0:
+        # Time-based cleanup (every 60s instead of every N requests)
+        if now - self._last_cleanup > self._cleanup_interval:
             self._cleanup_stale_entries()
+            self._last_cleanup = now
 
         # Prune timestamps outside the current window for this IP
         timestamps = self._requests[client_ip]

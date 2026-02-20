@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,7 @@ from app.models.practice_config import PracticeConfig
 from app.schemas.practice_config import PracticeConfigResponse, PracticeConfigUpdate
 from app.schemas.common import MessageResponse
 from app.services.auth_service import hash_password
+from app.services.audit_service import log_audit
 from app.middleware.auth import require_super_admin
 
 router = APIRouter()
@@ -52,6 +53,7 @@ async def list_practices(
 @router.post("/practices", response_model=PracticeResponse, status_code=status.HTTP_201_CREATED)
 async def create_practice(
     request: PracticeCreate,
+    http_request: Request,
     current_user: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -63,8 +65,17 @@ async def create_practice(
 
     practice = Practice(**request.model_dump())
     db.add(practice)
-    await db.commit()
+    await db.flush()  # Populate practice.id before audit log
     await db.refresh(practice)
+
+    # HIPAA audit trail
+    await log_audit(
+        db, action="create", entity_type="practice", entity_id=practice.id,
+        user=current_user, new_value={"name": practice.name, "slug": practice.slug, "npi": practice.npi},
+        request=http_request,
+    )
+    await db.commit()
+
     return PracticeResponse.model_validate(practice)
 
 
@@ -86,6 +97,7 @@ async def get_practice(
 async def update_practice(
     practice_id: UUID,
     request: PracticeUpdate,
+    http_request: Request,
     current_user: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -96,11 +108,40 @@ async def update_practice(
         raise HTTPException(status_code=404, detail="Practice not found")
 
     update_data = request.model_dump(exclude_unset=True)
+
+    # Prevent duplicate slugs
+    if "slug" in update_data and update_data["slug"] != practice.slug:
+        slug_check = await db.execute(
+            select(Practice.id).where(
+                Practice.slug == update_data["slug"],
+                Practice.id != practice_id,
+            )
+        )
+        if slug_check.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Practice slug already exists")
+
+    # Capture old values for audit trail
+    old_values = {field: getattr(practice, field) for field in update_data}
+
     for field, value in update_data.items():
         setattr(practice, field, value)
 
     await db.commit()
     await db.refresh(practice)
+
+    # HIPAA audit trail for practice changes (NPI, tax_id, etc.)
+    await log_audit(
+        db=db,
+        user=current_user,
+        action="update_practice",
+        entity_type="practice",
+        entity_id=practice.id,
+        old_value=old_values,
+        new_value=update_data,
+        request=http_request,
+    )
+    await db.commit()
+
     return PracticeResponse.model_validate(practice)
 
 
@@ -159,7 +200,7 @@ async def create_user(
             raise HTTPException(status_code=400, detail="Practice not found")
 
     user_data = request.model_dump()
-    user_data["password_hash"] = hash_password(user_data.pop("password"))
+    user_data["password_hash"] = await hash_password(user_data.pop("password"))
 
     user = User(**user_data)
     db.add(user)
@@ -202,6 +243,7 @@ async def update_user(
 @router.delete("/users/{user_id}", response_model=MessageResponse)
 async def deactivate_user(
     user_id: UUID,
+    http_request: Request,
     current_user: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -215,6 +257,13 @@ async def deactivate_user(
         raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
 
     user.is_active = False
+
+    # HIPAA audit trail for user deactivation
+    await log_audit(
+        db, action="deactivate", entity_type="user", entity_id=user.id,
+        user=current_user, new_value={"email": user.email, "is_active": False},
+        request=http_request,
+    )
     await db.commit()
     return MessageResponse(message=f"User {user.email} deactivated")
 

@@ -13,6 +13,7 @@ class SendSmsRequest(BaseModel):
     body: str = Field(
         ...,
         description="SMS message body",
+        min_length=1,
         max_length=1600,
     )
 

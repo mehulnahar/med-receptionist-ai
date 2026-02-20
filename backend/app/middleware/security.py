@@ -20,9 +20,12 @@ MAX_BODY_SIZE = 1_048_576
 # Methods that must carry application/json
 MUTATION_METHODS = {"POST", "PUT", "PATCH"}
 
-# Paths exempt from Content-Type validation (file uploads, webhooks with
-# non-JSON payloads, etc.).  Add more as needed.
-CONTENT_TYPE_EXEMPT_PATHS: set[str] = set()
+# Path prefixes exempt from Content-Type validation (webhooks receive
+# non-JSON payloads, e.g. Twilio sends application/x-www-form-urlencoded).
+CONTENT_TYPE_EXEMPT_PREFIXES: tuple[str, ...] = (
+    "/api/webhooks/",
+    "/api/reminders/twilio-reply",
+)
 
 # Security headers applied to every response
 SECURITY_HEADERS = {
@@ -30,6 +33,8 @@ SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "X-XSS-Protection": "1; mode=block",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Cache-Control": "no-store",
 }
 
@@ -60,7 +65,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 pass  # Malformed header; let downstream handle it
 
         # ---- Content-Type validation for mutation methods ----
-        if method in MUTATION_METHODS and path not in CONTENT_TYPE_EXEMPT_PATHS:
+        if method in MUTATION_METHODS and not path.startswith(CONTENT_TYPE_EXEMPT_PREFIXES):
             content_type = request.headers.get("content-type", "")
             # Allow requests with no body (content-length 0 or missing)
             has_body = content_length is not None and content_length != "0"

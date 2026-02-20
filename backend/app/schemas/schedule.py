@@ -57,6 +57,14 @@ class ScheduleOverrideCreate(BaseModel):
     end_time: time | None = None
     reason: str | None = Field(None, max_length=255)
 
+    @field_validator("date")
+    @classmethod
+    def date_not_in_past(cls, v: date) -> date:
+        from datetime import date as date_type
+        if v < date_type.today():
+            raise ValueError("Override date cannot be in the past")
+        return v
+
     @field_validator("end_time")
     @classmethod
     def end_time_after_start_time(cls, v: time | None, info) -> time | None:

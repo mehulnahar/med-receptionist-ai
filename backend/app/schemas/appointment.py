@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from uuid import UUID
-from datetime import date, time, datetime
+from datetime import date, time, datetime, timedelta
 from typing import Any
 
 
@@ -8,15 +8,32 @@ APPOINTMENT_STATUSES = (
     "booked", "confirmed", "entered_in_ehr", "cancelled", "no_show", "completed"
 )
 
+MAX_BOOKING_DAYS_AHEAD = 365
+
+
+def _validate_appointment_date(v: date) -> date:
+    """Reject dates in the past or more than 365 days in the future."""
+    today = date.today()
+    if v < today:
+        raise ValueError("Appointment date cannot be in the past")
+    if v > today + timedelta(days=MAX_BOOKING_DAYS_AHEAD):
+        raise ValueError(f"Appointment date cannot be more than {MAX_BOOKING_DAYS_AHEAD} days in the future")
+    return v
+
 
 class BookAppointmentRequest(BaseModel):
     patient_id: UUID
     appointment_type_id: UUID
     date: date
     time: time
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=2000)
     booked_by: str = Field(default="ai", max_length=20)
     call_id: UUID | None = None
+
+    @field_validator("date")
+    @classmethod
+    def date_in_range(cls, v: date) -> date:
+        return _validate_appointment_date(v)
 
 
 class AppointmentResponse(BaseModel):
@@ -52,17 +69,22 @@ class AppointmentListResponse(BaseModel):
 
 
 class CancelAppointmentRequest(BaseModel):
-    reason: str | None = None
+    reason: str | None = Field(None, max_length=1000)
 
 
 class RescheduleAppointmentRequest(BaseModel):
     new_date: date
     new_time: time
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=2000)
+
+    @field_validator("new_date")
+    @classmethod
+    def date_in_range(cls, v: date) -> date:
+        return _validate_appointment_date(v)
 
 
 class ConfirmAppointmentRequest(BaseModel):
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=2000)
 
 
 class AppointmentStatusUpdate(BaseModel):
@@ -70,4 +92,4 @@ class AppointmentStatusUpdate(BaseModel):
         ...,
         pattern="^(booked|confirmed|entered_in_ehr|cancelled|no_show|completed)$",
     )
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=2000)

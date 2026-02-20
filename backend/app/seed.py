@@ -10,10 +10,14 @@ Usage:
 
 import asyncio
 import datetime
+import logging
+import secrets
 
 import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.database import AsyncSessionLocal
 from app.models.practice import Practice
@@ -70,7 +74,7 @@ async def seed_database() -> None:
         await _seed_holidays(session)
 
         await session.commit()
-        print("[seed] Database seeding completed successfully.")
+        logger.info("Database seeding completed successfully.")
 
 
 # ==========================================================================
@@ -85,7 +89,7 @@ async def _get_or_create_practice(session: AsyncSession) -> Practice:
     )
     practice = result.scalars().first()
     if practice:
-        print("[seed] Practice 'stefanides-md' already exists, skipping.")
+        logger.info("Practice 'stefanides-md' already exists, skipping.")
         return practice
 
     practice = Practice(
@@ -98,7 +102,7 @@ async def _get_or_create_practice(session: AsyncSession) -> Practice:
     )
     session.add(practice)
     await session.flush()
-    print("[seed] Created practice: Stefanides Neofitos, MD PC")
+    logger.info("Created practice: Stefanides Neofitos, MD PC")
     return practice
 
 
@@ -109,14 +113,12 @@ async def _seed_users(session: AsyncSession, practice_id) -> None:
             "email": "admin@mindcrew.tech",
             "name": "Mehul (Admin)",
             "role": "super_admin",
-            "password": "admin123",
             "practice_id": None,  # super_admin is not tied to a practice
         },
         {
             "email": "jennie@stefanides.com",
             "name": "Jennie",
             "role": "secretary",
-            "password": "secretary123",
             "practice_id": practice_id,
         },
     ]
@@ -126,19 +128,25 @@ async def _seed_users(session: AsyncSession, practice_id) -> None:
             select(User).where(User.email == user_data["email"])
         )
         if result.scalars().first():
-            print(f"[seed] User '{user_data['email']}' already exists, skipping.")
+            logger.info("User '%s' already exists, skipping.", user_data['email'])
             continue
+
+        # Generate a random password for each user (printed to stdout for initial setup)
+        password = secrets.token_urlsafe(16)
 
         user = User(
             email=user_data["email"],
             name=user_data["name"],
             role=user_data["role"],
-            password_hash=hash_password(user_data["password"]),
+            password_hash=hash_password(password),
             practice_id=user_data["practice_id"],
             is_active=True,
+            password_change_required=True,
         )
         session.add(user)
-        print(f"[seed] Created user: {user_data['email']} ({user_data['role']})")
+        logger.info("Created user: %s (%s)", user_data['email'], user_data['role'])
+        logger.warning("INITIAL PASSWORD for %s: %s  (change on first login)", user_data['email'], password)
+        logger.warning("Save this password — it will NOT be shown again.")
 
     await session.flush()
 
@@ -149,7 +157,7 @@ async def _seed_practice_config(session: AsyncSession, practice_id) -> None:
         select(PracticeConfig).where(PracticeConfig.practice_id == practice_id)
     )
     if result.scalars().first():
-        print("[seed] PracticeConfig already exists, skipping.")
+        logger.info("PracticeConfig already exists, skipping.")
         return
 
     config = PracticeConfig(
@@ -199,7 +207,7 @@ async def _seed_practice_config(session: AsyncSession, practice_id) -> None:
     )
     session.add(config)
     await session.flush()
-    print("[seed] Created PracticeConfig.")
+    logger.info("Created PracticeConfig.")
 
 
 async def _seed_schedule_templates(session: AsyncSession, practice_id) -> None:
@@ -209,7 +217,7 @@ async def _seed_schedule_templates(session: AsyncSession, practice_id) -> None:
     )
     existing = result.scalars().all()
     if existing:
-        print("[seed] Schedule templates already exist, skipping.")
+        logger.info("Schedule templates already exist, skipping.")
         return
 
     schedules = [
@@ -234,7 +242,7 @@ async def _seed_schedule_templates(session: AsyncSession, practice_id) -> None:
         session.add(template)
 
     await session.flush()
-    print("[seed] Created 7 schedule templates (Mon-Sun).")
+    logger.info("Created 7 schedule templates (Mon-Sun).")
 
 
 async def _seed_appointment_types(session: AsyncSession, practice_id) -> None:
@@ -244,7 +252,7 @@ async def _seed_appointment_types(session: AsyncSession, practice_id) -> None:
     )
     existing = result.scalars().all()
     if existing:
-        print("[seed] Appointment types already exist, skipping.")
+        logger.info("Appointment types already exist, skipping.")
         return
 
     types = [
@@ -319,7 +327,7 @@ async def _seed_appointment_types(session: AsyncSession, practice_id) -> None:
         session.add(appt_type)
 
     await session.flush()
-    print(f"[seed] Created {len(types)} appointment types.")
+    logger.info("Created %d appointment types.", len(types))
 
 
 async def _seed_insurance_carriers(session: AsyncSession, practice_id) -> None:
@@ -329,7 +337,7 @@ async def _seed_insurance_carriers(session: AsyncSession, practice_id) -> None:
     )
     existing = result.scalars().all()
     if existing:
-        print("[seed] Insurance carriers already exist, skipping.")
+        logger.info("Insurance carriers already exist, skipping.")
         return
 
     carriers = [
@@ -365,7 +373,7 @@ async def _seed_insurance_carriers(session: AsyncSession, practice_id) -> None:
         session.add(carrier)
 
     await session.flush()
-    print(f"[seed] Created {len(carriers)} insurance carriers.")
+    logger.info("Created %d insurance carriers.", len(carriers))
 
 
 async def _seed_holidays(session: AsyncSession) -> None:
@@ -375,7 +383,7 @@ async def _seed_holidays(session: AsyncSession) -> None:
     )
     existing = result.scalars().all()
     if existing:
-        print("[seed] 2026 holidays already exist, skipping.")
+        logger.info("2026 holidays already exist, skipping.")
         return
 
     holidays = [
@@ -398,7 +406,7 @@ async def _seed_holidays(session: AsyncSession) -> None:
         session.add(holiday)
 
     await session.flush()
-    print(f"[seed] Created {len(holidays)} holidays for 2026.")
+    logger.info("Created %d holidays for 2026.", len(holidays))
 
 
 if __name__ == "__main__":

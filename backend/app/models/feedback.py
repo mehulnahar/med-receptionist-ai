@@ -24,7 +24,7 @@ class CallFeedback(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     call_id = Column(UUID(as_uuid=True), ForeignKey("calls.id"), nullable=False, unique=True)
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
 
     # Quality scores (0.0 - 1.0)
     overall_score = Column(Float, nullable=True)
@@ -58,7 +58,7 @@ class PromptVersion(Base):
     __tablename__ = "prompt_versions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
     version = Column(Integer, nullable=False)
     prompt_text = Column(Text, nullable=False)
     change_reason = Column(Text, nullable=True)  # Why was this version created?
@@ -83,7 +83,7 @@ class FeedbackInsight(Base):
     __tablename__ = "feedback_insights"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
 
     # Pattern classification
     insight_type = Column(String(50), nullable=False)  # failure_pattern, improvement_opportunity, language_issue, etc.

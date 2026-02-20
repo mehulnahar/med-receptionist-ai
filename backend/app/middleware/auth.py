@@ -44,8 +44,18 @@ async def get_current_user(
 
 
 def require_role(*allowed_roles: str):
-    """Dependency factory: restrict endpoint to specific roles."""
+    """Dependency factory: restrict endpoint to specific roles.
+
+    Also enforces password_change_required — users who haven't changed
+    their initial password are blocked from non-auth endpoints.
+    """
     async def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        if getattr(current_user, "password_change_required", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Password change required. Please update your password before continuing.",
+                headers={"X-Password-Change-Required": "true"},
+            )
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

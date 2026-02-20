@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,7 +51,12 @@ class VoicemailResponse(BaseModel):
 
 
 class VoicemailStatusUpdate(BaseModel):
-    status: str  # new, read, responded, archived
+    status: str = Field(..., pattern="^(new|read|responded|archived)$")
+
+
+class VoicemailListResponse(BaseModel):
+    voicemails: list[VoicemailResponse]
+    total: int
 
 
 class VoicemailCountResponse(BaseModel):
@@ -75,10 +80,10 @@ def _ensure_practice(user: User) -> UUID:
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/", response_model=list[VoicemailResponse])
+@router.get("/", response_model=VoicemailListResponse)
 async def list_voicemails(
     status_filter: str = Query("new", alias="status"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
@@ -86,9 +91,22 @@ async def list_voicemails(
     """List voicemails for the practice, filterable by status."""
     practice_id = _ensure_practice(current_user)
 
+    valid_statuses = {"all", "new", "read", "responded", "archived"}
+    if status_filter not in valid_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status. Must be one of: {', '.join(sorted(valid_statuses))}",
+        )
+
     filters = [Voicemail.practice_id == practice_id]
     if status_filter != "all":
         filters.append(Voicemail.status == status_filter)
+
+    # Total count for pagination
+    count_result = await db.execute(
+        select(func.count(Voicemail.id)).where(*filters)
+    )
+    total = count_result.scalar_one()
 
     result = await db.execute(
         select(Voicemail)
@@ -98,7 +116,10 @@ async def list_voicemails(
         .limit(limit)
     )
 
-    return [VoicemailResponse.model_validate(vm) for vm in result.scalars().all()]
+    return VoicemailListResponse(
+        voicemails=[VoicemailResponse.model_validate(vm) for vm in result.scalars().all()],
+        total=total,
+    )
 
 
 @router.patch("/{voicemail_id}/status", response_model=VoicemailResponse)
@@ -140,6 +161,8 @@ async def update_voicemail_status(
         voicemail.responded_at = datetime.now(timezone.utc)
 
     await db.flush()
+    await db.commit()
+    await db.refresh(voicemail)
 
     return VoicemailResponse.model_validate(voicemail)
 

@@ -12,7 +12,7 @@ class InsuranceVerification(Base):
     __tablename__ = "insurance_verifications"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
     patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
     call_id = Column(UUID(as_uuid=True), ForeignKey("calls.id"), nullable=True)
     carrier_name = Column(String(255), nullable=True)
@@ -27,9 +27,9 @@ class InsuranceVerification(Base):
     verified_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
-    practice = relationship("Practice", back_populates="insurance_verifications", lazy="selectin")
+    practice = relationship("Practice", back_populates="insurance_verifications", lazy="select")
     patient = relationship("Patient", back_populates="insurance_verifications", lazy="selectin")
-    call = relationship("Call", lazy="selectin")
+    call = relationship("Call", lazy="select")
 
     def __repr__(self):
         return f"<InsuranceVerification(id={self.id}, carrier='{self.carrier_name}', status='{self.status}')>"

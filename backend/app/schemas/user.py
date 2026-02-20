@@ -1,4 +1,6 @@
-from pydantic import BaseModel, EmailStr, Field
+import re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
@@ -11,8 +13,19 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=8, max_length=128)
     practice_id: UUID | None = None
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -29,6 +42,7 @@ class UserResponse(BaseModel):
     role: str
     practice_id: UUID | None = None
     is_active: bool
+    password_change_required: bool = False
     last_login: datetime | None = None
     created_at: datetime
 

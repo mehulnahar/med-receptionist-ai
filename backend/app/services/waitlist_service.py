@@ -111,6 +111,7 @@ async def check_waitlist_on_cancellation(
         select(WaitlistEntry)
         .where(and_(*filters))
         .order_by(WaitlistEntry.priority.asc(), WaitlistEntry.created_at.asc())
+        .with_for_update(skip_locked=True)
     )
     result = await db.execute(stmt)
     candidates = result.scalars().all()
@@ -209,6 +210,25 @@ async def notify_waitlist_patient(
         f"This offer expires in 2 hours."
     )
 
+    # Validate phone number before attempting to send (E.164 format)
+    import re
+    phone = (entry.patient_phone or "").strip()
+    if not phone or not re.match(r"^\+[1-9]\d{1,14}$", phone):
+        logger.warning(
+            "notify_waitlist_patient: invalid phone '%s' for entry %s, skipping",
+            phone, entry.id,
+        )
+        entry.status = "failed"
+        await db.flush()
+        return {
+            "entry_id": str(entry.id),
+            "patient_name": entry.patient_name,
+            "patient_phone": phone,
+            "sms_success": False,
+            "message_sid": None,
+            "error": f"Invalid phone number format: {phone}",
+        }
+
     # Send SMS
     sms_result = await send_custom_sms(
         db=db,
@@ -217,15 +237,22 @@ async def notify_waitlist_patient(
         body=body,
     )
 
-    # Update entry status
+    # Only mark as notified if SMS actually went through
     now = datetime.now(timezone.utc)
-    entry.status = "notified"
-    entry.notified_at = now
-    entry.expires_at = now + timedelta(hours=2)
+    if sms_result.get("success"):
+        entry.status = "notified"
+        entry.notified_at = now
+        entry.expires_at = now + timedelta(hours=2)
+    else:
+        # Keep as waiting so the entry can be retried or manually handled
+        logger.warning(
+            "Waitlist SMS failed for entry %s (%s): %s — keeping status as '%s'",
+            entry.id, entry.patient_phone, sms_result.get("error"), entry.status,
+        )
     await db.flush()
 
     logger.info(
-        "Waitlist notification sent to %s for entry %s (SMS success: %s)",
+        "Waitlist notification for %s entry %s (SMS success: %s)",
         entry.patient_phone, entry.id, sms_result.get("success"),
     )
 

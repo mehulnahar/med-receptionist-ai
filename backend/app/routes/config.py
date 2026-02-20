@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.practice_config import PracticeConfig
 from app.schemas.practice_config import PracticeConfigResponse, PracticeConfigUpdate
 from app.middleware.auth import get_current_user, require_practice_admin, require_any_staff
+from app.utils.cache import practice_config_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -75,6 +76,10 @@ async def update_practice_config(
 
     for field, value in update_data.items():
         setattr(config, field, value)
+
+    # Invalidate cache BEFORE commit — prevents a race where another request
+    # reads the old DB row and re-populates the cache between commit and invalidate
+    practice_config_cache.invalidate(f"practice_config:{current_user.practice_id}")
 
     await db.commit()
     await db.refresh(config)

@@ -12,9 +12,10 @@ guarantee Vapi always gets a valid JSON response (never an unhandled crash).
 
 import inspect
 import logging
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -22,6 +23,7 @@ from sqlalchemy import select, and_
 from app.models.patient import Patient
 from app.models.appointment import Appointment
 from app.models.appointment_type import AppointmentType
+from app.models.practice import Practice
 from app.models.practice_config import PracticeConfig
 from app.models.schedule import ScheduleTemplate, ScheduleOverride
 from app.models.voicemail import Voicemail
@@ -60,18 +62,24 @@ def _parse_time(value: str) -> time:
     return datetime.strptime(value, "%H:%M:%S").time()
 
 
+def _esc_like(val: str) -> str:
+    """Escape ILIKE wildcard characters (%, _, \\) in user-supplied input."""
+    return val.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def _find_appointment_type_by_name(
     db: AsyncSession,
     practice_id: UUID,
     name: str,
 ) -> Optional[AppointmentType]:
     """Find an active appointment type by partial name match (case-insensitive)."""
+    escaped_name = _esc_like(name)
     stmt = (
         select(AppointmentType)
         .where(
             and_(
                 AppointmentType.practice_id == practice_id,
-                AppointmentType.name.ilike(f"%{name}%"),
+                AppointmentType.name.ilike(f"%{escaped_name}%"),
                 AppointmentType.is_active == True,  # noqa: E712
             )
         )
@@ -106,12 +114,14 @@ async def _find_upcoming_appointment(
     practice_id: UUID,
     patient_id: UUID,
     appointment_date: Optional[date] = None,
+    practice_tz: str = "America/New_York",
 ) -> Optional[Appointment]:
     """
     Find a patient's upcoming appointment.
 
     If appointment_date is provided, find the appointment on that specific date.
-    Otherwise, find the next upcoming non-cancelled appointment from today onward.
+    Otherwise, find the next upcoming non-cancelled appointment from today onward
+    using the practice's local timezone (not the server's UTC clock).
     """
     filters = [
         Appointment.practice_id == practice_id,
@@ -122,7 +132,12 @@ async def _find_upcoming_appointment(
     if appointment_date:
         filters.append(Appointment.date == appointment_date)
     else:
-        filters.append(Appointment.date >= date.today())
+        try:
+            tz = ZoneInfo(practice_tz)
+        except (KeyError, Exception):
+            tz = ZoneInfo("America/New_York")
+        today_in_practice_tz = datetime.now(tz).date()
+        filters.append(Appointment.date >= today_in_practice_tz)
 
     stmt = (
         select(Appointment)
@@ -266,7 +281,18 @@ async def tool_check_availability(
 
     try:
         target_date = _parse_date(params["date"])
-        today = date.today()
+
+        # Use practice timezone for "today" instead of server time
+        practice_tz_name = "America/New_York"  # default
+        try:
+            practice_row = (await db.execute(
+                select(Practice.timezone).where(Practice.id == practice_id)
+            )).scalar_one_or_none()
+            if practice_row:
+                practice_tz_name = practice_row
+        except Exception:
+            pass  # Fall back to default
+        today = datetime.now(ZoneInfo(practice_tz_name)).date()
         appointment_type_id = None
 
         # If an appointment type name is provided, look it up
@@ -286,6 +312,18 @@ async def tool_check_availability(
                 "available_slots": [],
                 "total_available": 0,
                 "message": f"That date is in the past. Today is {DAY_NAMES[today.weekday()]}, {today.strftime('%B %d, %Y')}.",
+                "today": today.isoformat(),
+            }
+
+        # Cap how far into the future a caller can check (90 days)
+        max_future = today + timedelta(days=90)
+        if target_date > max_future:
+            return {
+                "date": target_date.isoformat(),
+                "date_display": f"{DAY_NAMES[target_date.weekday()]}, {target_date.strftime('%B %d, %Y')}",
+                "available_slots": [],
+                "total_available": 0,
+                "message": f"We can only check availability up to 90 days ahead. The latest date is {max_future.strftime('%B %d, %Y')}.",
                 "today": today.isoformat(),
             }
 
@@ -692,9 +730,21 @@ async def tool_cancel_appointment(
         if params.get("appointment_date"):
             appointment_date = _parse_date(params["appointment_date"])
 
+        # Resolve practice timezone for "today" calculation
+        practice_tz_name = "America/New_York"
+        try:
+            tz_row = (await db.execute(
+                select(Practice.timezone).where(Practice.id == practice_id)
+            )).scalar_one_or_none()
+            if tz_row:
+                practice_tz_name = tz_row
+        except Exception:
+            pass
+
         # Find the appointment to cancel
         appointment = await _find_upcoming_appointment(
-            db, practice_id, patient_id, appointment_date
+            db, practice_id, patient_id, appointment_date,
+            practice_tz=practice_tz_name,
         )
 
         if not appointment:
@@ -785,9 +835,21 @@ async def tool_reschedule_appointment(
         if params.get("old_date"):
             old_date = _parse_date(params["old_date"])
 
+        # Resolve practice timezone for "today" calculation
+        practice_tz_name = "America/New_York"
+        try:
+            tz_row = (await db.execute(
+                select(Practice.timezone).where(Practice.id == practice_id)
+            )).scalar_one_or_none()
+            if tz_row:
+                practice_tz_name = tz_row
+        except Exception:
+            pass
+
         # Find the existing appointment
         appointment = await _find_upcoming_appointment(
-            db, practice_id, patient_id, old_date
+            db, practice_id, patient_id, old_date,
+            practice_tz=practice_tz_name,
         )
 
         if not appointment:
@@ -1101,7 +1163,7 @@ async def tool_check_office_hours(
     DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     try:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         current_day = now.weekday()  # 0=Monday, 6=Sunday
         current_time_val = now.time()
         today_date = now.date()
@@ -1304,17 +1366,21 @@ async def tool_leave_voicemail(
                 if not patient_id and call_record.patient_id:
                     patient_id = call_record.patient_id
 
+        # Truncate message to prevent unbounded storage from AI-generated content
+        safe_message = message_text[:10000] if message_text and len(message_text) > 10000 else message_text
+        safe_reason = reason[:500] if reason and len(reason) > 500 else reason
+
         voicemail = Voicemail(
             practice_id=practice_id,
             call_id=call_id,
             patient_id=patient_id,
             caller_name=caller_name,
             caller_phone=caller_phone,
-            message=message_text,
+            message=safe_message,
             urgency=urgency,
             callback_requested=callback_requested,
             preferred_callback_time=preferred_callback_time,
-            reason=reason,
+            reason=safe_reason,
             status="new",
         )
         db.add(voicemail)
@@ -1451,6 +1517,9 @@ TOOL_REGISTRY = {
 }
 
 
+TOOL_CALL_TIMEOUT_SECONDS = 15  # Keep short — caller is waiting on a live voice call
+
+
 async def dispatch_tool_call(
     db: AsyncSession,
     practice_id: UUID,
@@ -1463,8 +1532,11 @@ async def dispatch_tool_call(
 
     Automatically detects whether the handler accepts a vapi_call_id parameter
     and passes it only when supported. Catches any unhandled exceptions so Vapi
-    always receives a valid JSON response.
+    always receives a valid JSON response. Enforces a timeout to prevent
+    hung tool calls from freezing the live conversation.
     """
+    import asyncio
+
     handler = TOOL_REGISTRY.get(tool_name)
     if not handler:
         logger.warning("dispatch_tool_call: Unknown tool '%s'", tool_name)
@@ -1473,8 +1545,17 @@ async def dispatch_tool_call(
     try:
         sig = inspect.signature(handler)
         if "vapi_call_id" in sig.parameters:
-            return await handler(db, practice_id, params, vapi_call_id=vapi_call_id)
-        return await handler(db, practice_id, params)
+            coro = handler(db, practice_id, params, vapi_call_id=vapi_call_id)
+        else:
+            coro = handler(db, practice_id, params)
+
+        return await asyncio.wait_for(coro, timeout=TOOL_CALL_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.error(
+            "Tool %s timed out after %ds (call=%s)",
+            tool_name, TOOL_CALL_TIMEOUT_SECONDS, vapi_call_id,
+        )
+        return {"error": f"Tool {tool_name} timed out. Please try again."}
     except Exception as e:
         logger.exception("Tool %s failed", tool_name)
         return {"error": f"Tool execution failed: {str(e)}"}

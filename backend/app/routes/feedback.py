@@ -180,10 +180,10 @@ async def get_feedback_stats(
 async def list_insights(
     status_filter: str = Query("open", alias="status"),
     limit: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(require_any_staff),
+    current_user: User = Depends(require_practice_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """List feedback insights (auto-detected improvement suggestions)."""
+    """List feedback insights (auto-detected improvement suggestions). Practice admin only."""
     practice_id = _ensure_practice(current_user)
 
     filters = [FeedbackInsight.practice_id == practice_id]

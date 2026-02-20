@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Calendar,
@@ -106,6 +106,12 @@ function StatusBadge({ status }) {
 export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const mountedRef = useRef(true)
+
+  // Cleanup on unmount — prevents state updates after navigation away
+  useEffect(() => {
+    return () => { mountedRef.current = false }
+  }, [])
 
   const [appointments, setAppointments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -150,8 +156,10 @@ export default function Dashboard() {
       // Sort by time ascending
       list.sort((a, b) => (a.time || '').localeCompare(b.time || ''))
 
+      if (!mountedRef.current) return
       setAppointments(list)
     } catch (err) {
+      if (!mountedRef.current) return
       // Don't set error for 401 — the axios interceptor handles redirect
       if (err.response?.status !== 401) {
         setError(
@@ -160,8 +168,10 @@ export default function Dashboard() {
         )
       }
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (mountedRef.current) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }, [todayStr])
 
@@ -169,6 +179,7 @@ export default function Dashboard() {
   const fetchCallStats = useCallback(async () => {
     try {
       const res = await api.get('/webhooks/calls/stats')
+      if (!mountedRef.current) return
       setCallStats(res.data)
     } catch (err) {
       // Silently ignore 401 (auth redirect) and 404 (endpoint not deployed yet)
@@ -183,6 +194,7 @@ export default function Dashboard() {
     setCallbacksLoading(true)
     try {
       const res = await api.get('/webhooks/callbacks', { params: { limit: 10 } })
+      if (!mountedRef.current) return
       setCallbacks(res.data.callbacks || [])
     } catch (err) {
       // Silently ignore 401 (auth redirect) and 404 (endpoint not deployed yet)
@@ -190,7 +202,9 @@ export default function Dashboard() {
         console.error('Failed to fetch callbacks:', err)
       }
     } finally {
-      setCallbacksLoading(false)
+      if (mountedRef.current) {
+        setCallbacksLoading(false)
+      }
     }
   }, [])
 
@@ -201,14 +215,46 @@ export default function Dashboard() {
     fetchCallbacks()
   }, [fetchAppointments, fetchCallStats, fetchCallbacks])
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 30 seconds — pauses when the tab is hidden to avoid
+  // wasting ~8,640 API calls if someone leaves the dashboard open overnight.
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchAppointments(true)
-      fetchCallStats()
-      fetchCallbacks()
-    }, 30000)
-    return () => clearInterval(interval)
+    let interval = null
+
+    function startPolling() {
+      stopPolling()
+      interval = setInterval(() => {
+        fetchAppointments(true)
+        fetchCallStats()
+        fetchCallbacks()
+      }, 30000)
+    }
+
+    function stopPolling() {
+      if (interval) {
+        clearInterval(interval)
+        interval = null
+      }
+    }
+
+    function handleVisibility() {
+      if (document.hidden) {
+        stopPolling()
+      } else {
+        // Refresh immediately when user returns, then resume polling
+        fetchAppointments(true)
+        fetchCallStats()
+        fetchCallbacks()
+        startPolling()
+      }
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [fetchAppointments, fetchCallStats, fetchCallbacks])
 
   // ---------------------------------------------------------------------------

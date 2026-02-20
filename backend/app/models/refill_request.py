@@ -11,7 +11,7 @@ class RefillRequest(Base):
     __tablename__ = "refill_requests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id"), nullable=False)
+    practice_id = Column(UUID(as_uuid=True), ForeignKey("practices.id", ondelete="CASCADE"), nullable=False)
     patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=True)
     call_id = Column(UUID(as_uuid=True), ForeignKey("calls.id"), nullable=True)
 
@@ -39,5 +39,5 @@ class RefillRequest(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    practice = relationship("Practice", lazy="selectin")
+    practice = relationship("Practice", lazy="select")
     patient = relationship("Patient", lazy="selectin")

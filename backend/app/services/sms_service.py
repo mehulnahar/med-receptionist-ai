@@ -7,9 +7,13 @@ with per-practice credential overrides falling back to global settings.
 """
 
 import logging
+import re
 from datetime import date, time
 from uuid import UUID
 from zoneinfo import ZoneInfo
+
+# Strict E.164 format: + followed by 1-15 digits, starting with non-zero
+_E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -197,9 +201,22 @@ async def send_appointment_confirmation(
         body = render_sms_template(template_dict, language, variables)
 
         # Get Twilio credentials
-        account_sid, auth_token, from_phone = await get_twilio_credentials(
-            db, practice_id
-        )
+        try:
+            account_sid, auth_token, from_phone = await get_twilio_credentials(
+                db, practice_id
+            )
+        except ValueError as cred_err:
+            logger.error(
+                "Twilio credentials missing for practice %s: %s",
+                practice_id, cred_err,
+            )
+            return {
+                "success": False,
+                "message_sid": None,
+                "error": f"Twilio credentials not configured: {cred_err}",
+                "to": patient.phone,
+                "body": body,
+            }
 
         # Send the SMS
         send_result = await send_sms(
@@ -210,10 +227,13 @@ async def send_appointment_confirmation(
             auth_token=auth_token,
         )
 
-        # Update appointment on success
+        # Update appointment on success — commit immediately since the SMS
+        # was already sent (Twilio confirmed). Rolling this back would leave
+        # sms_confirmation_sent=False even though the patient received the SMS.
         if send_result["success"]:
             appointment.sms_confirmation_sent = True
             await db.flush()
+            await db.commit()
             await db.refresh(appointment)
             logger.info(
                 "SMS confirmation sent for appointment %s to %s (SID: %s)",
@@ -297,16 +317,29 @@ async def send_sms(
     body: str,
     account_sid: str,
     auth_token: str,
+    max_retries: int = 3,
 ) -> dict:
     """
-    Low-level Twilio SMS send function.
+    Low-level Twilio SMS send function with retry logic.
 
-    Creates a Twilio Client and sends the message. Returns a result dict:
+    Creates a Twilio Client and sends the message. On transient failures
+    (network errors, 5xx from Twilio) retries up to ``max_retries`` times
+    with exponential back-off (1s, 2s, 4s).
+
+    Returns a result dict:
         {"success": True, "message_sid": "SM..."} on success
         {"success": False, "error": "..."} on failure
 
     Handles both TwilioRestException and general network/runtime errors.
     """
+    # Validate phone numbers before hitting Twilio API
+    if not _E164_PATTERN.match(to_number):
+        logger.error("send_sms: invalid to_number format: %s", to_number[:20])
+        return {"success": False, "error": f"Invalid phone number format: {to_number}"}
+    if not _E164_PATTERN.match(from_number):
+        logger.error("send_sms: invalid from_number format: %s", from_number[:20])
+        return {"success": False, "error": f"Invalid from_number format: {from_number}"}
+
     try:
         from twilio.rest import Client
         from twilio.base.exceptions import TwilioRestException
@@ -320,30 +353,51 @@ async def send_sms(
             "error": "Twilio SDK not installed",
         }
 
-    try:
-        client = Client(account_sid, auth_token)
-        message = client.messages.create(
-            to=to_number,
-            from_=from_number,
-            body=body,
-        )
-        logger.info("SMS sent successfully: SID=%s, to=%s", message.sid, to_number)
-        return {
-            "success": True,
-            "message_sid": message.sid,
-        }
-    except TwilioRestException as e:
-        logger.error("Twilio API error sending SMS to %s: %s", to_number, e)
-        return {
-            "success": False,
-            "error": f"Twilio error: {e.msg}" if hasattr(e, "msg") else str(e),
-        }
-    except Exception as e:
-        logger.error("Unexpected error sending SMS to %s: %s", to_number, e)
-        return {
-            "success": False,
-            "error": f"Network/runtime error: {str(e)}",
-        }
+    import asyncio
+
+    client = Client(account_sid, auth_token)
+    last_error: str = ""
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Twilio's SDK is synchronous — run in a thread to avoid blocking
+            # the async event loop (critical for concurrent webhook handling).
+            message = await asyncio.to_thread(
+                client.messages.create,
+                to=to_number,
+                from_=from_number,
+                body=body,
+            )
+            logger.info("SMS sent successfully: SID=%s, to=%s (attempt %d)", message.sid, to_number, attempt)
+            return {
+                "success": True,
+                "message_sid": message.sid,
+            }
+        except TwilioRestException as e:
+            last_error = f"Twilio error: {e.msg}" if hasattr(e, "msg") else str(e)
+            twilio_status = getattr(e, "status", None)
+            # 429 = rate limited — retry with backoff (not a permanent failure)
+            if twilio_status == 429:
+                logger.warning("Twilio rate limit (429) sending SMS to %s (attempt %d/%d)", to_number, attempt, max_retries)
+            elif twilio_status and 400 <= twilio_status < 500:
+                # Other 4xx client errors are permanent — don't retry
+                logger.error("Twilio client error sending SMS to %s (attempt %d/%d): %s", to_number, attempt, max_retries, e)
+                return {"success": False, "error": last_error}
+            else:
+                logger.warning("Twilio server error sending SMS to %s (attempt %d/%d): %s", to_number, attempt, max_retries, e)
+        except Exception as e:
+            last_error = f"Network/runtime error: {str(e)}"
+            logger.warning("Transient error sending SMS to %s (attempt %d/%d): %s", to_number, attempt, max_retries, e)
+
+        # Exponential back-off before retry (1s, 2s, 4s, ...)
+        if attempt < max_retries:
+            await asyncio.sleep(2 ** (attempt - 1))
+
+    logger.error("SMS to %s failed after %d attempts: %s", to_number, max_retries, last_error)
+    return {
+        "success": False,
+        "error": last_error,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -86,8 +86,8 @@ export default function Login() {
 
           {/* Error alert */}
           {localError && (
-            <div className="mb-6 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <div role="alert" className="mb-6 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
               <span>{localError}</span>
             </div>
           )}

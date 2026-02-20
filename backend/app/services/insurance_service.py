@@ -7,8 +7,7 @@ Uses flush/refresh pattern -- caller controls transaction commit.
 """
 
 import logging
-import random
-import string
+import secrets
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 STEDI_ELIGIBILITY_URL = (
     "https://healthcare.us.stedi.com/2024-04-01/change/medicalnetwork/eligibility/v3"
 )
-STEDI_TIMEOUT_SECONDS = 15
+STEDI_TIMEOUT = httpx.Timeout(15.0, connect=5.0, pool=5.0)
 SERVICE_TYPE_CODE_HEALTH_BENEFIT = "30"
 
 
@@ -38,8 +37,8 @@ SERVICE_TYPE_CODE_HEALTH_BENEFIT = "30"
 # ---------------------------------------------------------------------------
 
 def _generate_control_number() -> str:
-    """Generate a random 9-digit numeric string for the EDI control number."""
-    return "".join(random.choices(string.digits, k=9))
+    """Generate a cryptographically random 9-digit numeric string for the EDI control number."""
+    return str(secrets.randbelow(10**9)).zfill(9)
 
 
 def _format_dob_for_stedi(dob) -> str:
@@ -59,6 +58,9 @@ def _format_dob_for_stedi(dob) -> str:
 # 1. Payer-ID resolution (fuzzy carrier-name matching)
 # ---------------------------------------------------------------------------
 
+PAYER_RESOLUTION_TIMEOUT_SECONDS = 10
+
+
 async def resolve_payer_id(
     db: AsyncSession,
     practice_id: UUID,
@@ -74,8 +76,30 @@ async def resolve_payer_id(
       3. Partial ``ILIKE`` match on the carrier name column.
 
     Returns ``(payer_id, matched_carrier_name)`` or ``(None, None)`` when no
-    match is found.
+    match is found. The entire resolution is bounded by a timeout to prevent
+    slow queries from blocking the caller.
     """
+    import asyncio
+
+    try:
+        return await asyncio.wait_for(
+            _resolve_payer_id_inner(db, practice_id, carrier_name),
+            timeout=PAYER_RESOLUTION_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "Payer resolution timed out after %ds for carrier '%s' in practice %s",
+            PAYER_RESOLUTION_TIMEOUT_SECONDS, carrier_name, practice_id,
+        )
+        return (None, None)
+
+
+async def _resolve_payer_id_inner(
+    db: AsyncSession,
+    practice_id: UUID,
+    carrier_name: str,
+) -> tuple[Optional[str], Optional[str]]:
+    """Inner implementation of payer resolution (wrapped by timeout)."""
     carrier_lower = carrier_name.strip().lower()
 
     if not carrier_lower:
@@ -138,7 +162,14 @@ async def resolve_payer_id(
                 InsuranceCarrier.practice_id == practice_id,
                 InsuranceCarrier.is_active.is_(True),
                 InsuranceCarrier.stedi_payer_id.isnot(None),
-                InsuranceCarrier.name.ilike(f"%{carrier_name.strip()}%"),
+                InsuranceCarrier.name.ilike(
+                    "%{}%".format(
+                        carrier_name.strip()
+                        .replace("\\", "\\\\")
+                        .replace("%", "\\%")
+                        .replace("_", "\\_")
+                    )
+                ),
             )
         )
         .limit(1)
@@ -454,7 +485,7 @@ async def check_eligibility(
     error_message: Optional[str] = None
 
     try:
-        async with httpx.AsyncClient(timeout=STEDI_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=STEDI_TIMEOUT) as client:
             response = await client.post(
                 STEDI_ELIGIBILITY_URL,
                 json=request_payload,
@@ -484,8 +515,8 @@ async def check_eligibility(
     except httpx.TimeoutException:
         error_message = "Stedi API request timed out"
         logger.error(
-            "Stedi eligibility timeout after %ds for patient %s",
-            STEDI_TIMEOUT_SECONDS,
+            "Stedi eligibility timeout after %.0fs for patient %s",
+            STEDI_TIMEOUT.read,
             patient_id,
         )
     except httpx.HTTPError as exc:

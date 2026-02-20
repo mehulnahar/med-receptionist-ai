@@ -26,7 +26,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-medrecept}:${POSTGRES_PASSWORD:-medrecept_dev_2026}@db:5432/${POSTGRES_DB:-medical_receptionist}
       DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-medrecept}:${POSTGRES_PASSWORD:-medrecept_dev_2026}@db:5432/${POSTGRES_DB:-medical_receptionist}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env — generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"}
       JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}

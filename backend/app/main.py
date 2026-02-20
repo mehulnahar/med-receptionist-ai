@@ -1,8 +1,12 @@
 import logging
+import time
+import traceback
+import uuid
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -10,6 +14,11 @@ from app.middleware.security import SecurityHeadersMiddleware
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+_is_production = settings.APP_ENV == "production"
+
+# Background task health tracking — updated by each loop iteration
+_background_health: dict[str, float] = {}
 
 
 async def _run_startup_migrations():
@@ -28,6 +37,17 @@ async def _run_startup_migrations():
         except Exception as e:
             await session.rollback()
             logger.warning("startup_migrations: caller_name migration skipped: %s", e)
+
+        # Add password_change_required column to users table
+        try:
+            await session.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_change_required BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: password_change_required column ensured on users table")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: password_change_required migration skipped: %s", e)
 
         # Add callback tracking columns
         try:
@@ -224,6 +244,19 @@ async def _run_startup_migrations():
             await session.rollback()
             logger.warning("startup_migrations: appointment_reminders table migration skipped: %s", e)
 
+        # Unique constraint to prevent duplicate reminders (race condition guard)
+        try:
+            await session.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_reminders_appt_schedule "
+                "ON appointment_reminders(appointment_id, scheduled_for) "
+                "WHERE status IN ('pending', 'sent')"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: reminder unique constraint ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: reminder unique constraint skipped: %s", e)
+
         # Create waitlist_entries table
         try:
             await session.execute(text("""
@@ -255,23 +288,69 @@ async def _run_startup_migrations():
 
 
 async def _reminder_check_loop():
-    """Background loop that processes pending appointment reminders every 60 seconds."""
+    """Background loop that processes pending appointment reminders every 60 seconds.
+
+    Uses a PostgreSQL advisory lock (pg_try_advisory_lock) so that when
+    multiple Uvicorn workers run this loop, only ONE worker processes
+    reminders at a time — preventing duplicate SMS sends.
+    """
     import asyncio
+    from sqlalchemy import text
     from app.database import AsyncSessionLocal
     from app.services.reminder_service import process_pending_reminders
 
+    ADVISORY_LOCK_ID = 123456789  # Arbitrary unique ID for this lock
+
     logger.info("reminder_check_loop: started")
+
+    consecutive_errors = 0
 
     while True:
         try:
             await asyncio.sleep(60)
             async with AsyncSessionLocal() as db:
-                sent = await process_pending_reminders(db)
-                await db.commit()
-                if sent > 0:
-                    logger.info("reminder_check_loop: sent %d reminders", sent)
+                # Try to acquire advisory lock (non-blocking). Only one worker wins.
+                lock_result = await db.execute(
+                    text(f"SELECT pg_try_advisory_lock({ADVISORY_LOCK_ID})")
+                )
+                acquired = lock_result.scalar_one()
+
+                if not acquired:
+                    # Another worker already holds the lock — skip this cycle
+                    continue
+
+                try:
+                    sent = await process_pending_reminders(db)
+                    await db.commit()
+                    if sent > 0:
+                        logger.info("reminder_check_loop: sent %d reminders", sent)
+                finally:
+                    # Always release the lock when done
+                    await db.execute(
+                        text(f"SELECT pg_advisory_unlock({ADVISORY_LOCK_ID})")
+                    )
+                    await db.commit()
+
+            consecutive_errors = 0  # Reset on success
+            _background_health["reminder_loop_last_ok"] = time.time()
+
         except Exception as e:
-            logger.warning("reminder_check_loop: error in cycle: %s", e)
+            consecutive_errors += 1
+            logger.warning(
+                "reminder_check_loop: error in cycle (%d consecutive): %s",
+                consecutive_errors, e,
+            )
+            # On persistent DB connection failures, dispose the engine pool
+            # so the next cycle gets fresh connections
+            if consecutive_errors >= 3:
+                try:
+                    from app.database import engine
+                    await engine.dispose()
+                    logger.info("reminder_check_loop: disposed connection pool after %d consecutive errors", consecutive_errors)
+                except Exception:
+                    pass
+                # Back off longer when DB is down to avoid log spam
+                await asyncio.sleep(30)
 
 
 @asynccontextmanager
@@ -295,21 +374,64 @@ async def lifespan(app: FastAPI):
     # Start background reminder scheduler
     reminder_task = asyncio.create_task(_reminder_check_loop())
 
+    logger.info("Application startup complete")
     yield
 
-    # Cleanup: cancel the background task on shutdown
+    # --- Graceful shutdown ---
+    logger.info("Shutting down — cancelling background tasks...")
+
+    # 1. Cancel the background reminder task
     reminder_task.cancel()
     try:
         await reminder_task
     except asyncio.CancelledError:
         logger.info("reminder_check_loop: stopped")
 
+    # 2. Dispose the database engine to close all pooled connections
+    try:
+        from app.database import engine
+        await engine.dispose()
+        logger.info("Database connection pool disposed")
+    except Exception as exc:
+        logger.warning("Error disposing database engine: %s", exc)
+
+    # 3. Clear in-memory caches
+    try:
+        from app.utils.cache import practice_config_cache
+        practice_config_cache.clear()
+    except Exception:
+        pass
+
+    logger.info("Shutdown complete")
+
 
 app = FastAPI(
     title="AI Medical Receptionist API",
     version="1.0.0",
     lifespan=lifespan,
+    # Disable interactive API docs in production — exposes full schema to attackers
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
+
+
+# ---------------------------------------------------------------------------
+# Global exception handler — catch unhandled errors, log them, return 500
+# ---------------------------------------------------------------------------
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unhandled exception on %s %s: %s\n%s",
+        request.method,
+        request.url.path,
+        exc,
+        traceback.format_exc(),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 # ---------------------------------------------------------------------------
 # Middleware stack (last added = outermost = processes requests first)
@@ -321,9 +443,39 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.CORS_ORIGINS.split(",")],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Idempotency-Key"],
 )
+
+# ---------------------------------------------------------------------------
+# Request body size limit (5 MB default for non-webhook routes)
+# Webhooks have their own 1 MB limit in the handler.
+# ---------------------------------------------------------------------------
+MAX_BODY_BYTES = 5 * 1024 * 1024  # 5 MB
+
+@app.middleware("http")
+async def _limit_request_body(request: Request, call_next):
+    """Reject oversized request bodies to prevent OOM from malicious payloads."""
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_BODY_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "Request body too large"},
+        )
+    return await call_next(request)
+
+# ---------------------------------------------------------------------------
+# Request ID correlation — attach a unique ID to every request/response for
+# log tracing and incident debugging.
+# ---------------------------------------------------------------------------
+@app.middleware("http")
+async def _request_id(request: Request, call_next):
+    """Attach a unique X-Request-ID to every response for distributed tracing."""
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 # ---------------------------------------------------------------------------
 # Route blueprints
@@ -367,6 +519,67 @@ app.include_router(waitlist_router, prefix="/api/waitlist", tags=["Waitlist"])
 app.include_router(analytics_router, prefix="/api/analytics", tags=["Analytics"])
 
 
+@app.post("/api/client-errors", status_code=204)
+async def report_client_error(request: Request):
+    """Accept frontend error reports (e.g. unhandled JS exceptions).
+
+    Body (JSON): { "message": str, "stack": str?, "url": str?, "userAgent": str? }
+    No auth required — the endpoint is intentionally open so error reports
+    always reach the server, but it rate-limits and caps body size.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Invalid JSON"})
+
+    # Cap individual fields to prevent log injection / abuse
+    message = str(body.get("message", ""))[:500]
+    stack = str(body.get("stack", ""))[:2000]
+    url = str(body.get("url", ""))[:500]
+
+    logger.warning(
+        "client_error: %s | url=%s | stack=%s",
+        message,
+        url,
+        stack[:200],  # abbreviated in log line
+    )
+    return JSONResponse(status_code=204, content=None)
+
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "1.0.0"}
+    """Health check endpoint that verifies DB connectivity.
+
+    Returns HTTP 503 when the database is unreachable so that load balancers
+    stop routing traffic to this instance.
+    """
+    from app.database import AsyncSessionLocal
+    from sqlalchemy import text
+
+    db_ok = False
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+            db_ok = True
+    except Exception as e:
+        logger.warning("health_check: database connection failed: %s", e)
+
+    if not db_ok:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "version": "1.0.0", "database": "unavailable"},
+        )
+
+    # Check background task health — flag stale if no heartbeat in 5 minutes
+    reminder_last_ok = _background_health.get("reminder_loop_last_ok")
+    reminder_status = "unknown"
+    if reminder_last_ok:
+        age = time.time() - reminder_last_ok
+        reminder_status = "ok" if age < 300 else f"stale ({int(age)}s ago)"
+
+    return {
+        "status": "healthy",
+        "version": "1.0.0",
+        "database": "connected",
+        "background_tasks": {"reminder_loop": reminder_status},
+    }
