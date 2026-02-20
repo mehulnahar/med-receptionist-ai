@@ -24,37 +24,47 @@ export function AuthProvider({ children }) {
   /**
    * Fetch the current user profile from the API.
    * Returns the user object on success, or null on failure.
+   * On 429 (rate limit), retries up to 3 times with exponential backoff.
    */
-  const fetchUser = useCallback(async () => {
-    try {
-      const response = await api.get('/auth/me')
-      const userData = response.data
-      // Backend returns a single "name" field — split into first/last for the UI
-      const nameParts = (userData.name || '').trim().split(/\s+/)
-      const first_name = nameParts[0] || ''
-      const last_name = nameParts.slice(1).join(' ') || ''
-      setUser({
-        id: userData.id,
-        email: userData.email,
-        role: userData.role,
-        practice_id: userData.practice_id,
-        name: userData.name,
-        first_name,
-        last_name,
-      })
-      return userData
-    } catch (err) {
-      // If the token is invalid / expired the axios interceptor in api.js
-      // will already clear localStorage and redirect on 401, but we also
-      // clean up local state here for completeness.
-      if (err.response && err.response.status === 401) {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        setToken(null)
-        setUser(null)
+  const fetchUser = useCallback(async (retries = 3) => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const response = await api.get('/auth/me')
+        const userData = response.data
+        // Backend returns a single "name" field — split into first/last for the UI
+        const nameParts = (userData.name || '').trim().split(/\s+/)
+        const first_name = nameParts[0] || ''
+        const last_name = nameParts.slice(1).join(' ') || ''
+        setUser({
+          id: userData.id,
+          email: userData.email,
+          role: userData.role,
+          practice_id: userData.practice_id,
+          name: userData.name,
+          first_name,
+          last_name,
+        })
+        return userData
+      } catch (err) {
+        // On 429 (rate limit), retry after a delay instead of treating as auth failure
+        if (err.response && err.response.status === 429 && attempt < retries) {
+          const delay = Math.min(2000 * Math.pow(2, attempt), 10000)
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+        // If the token is invalid / expired the axios interceptor in api.js
+        // will already clear localStorage and redirect on 401, but we also
+        // clean up local state here for completeness.
+        if (err.response && err.response.status === 401) {
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+          setToken(null)
+          setUser(null)
+        }
+        return null
       }
-      return null
     }
+    return null
   }, [])
 
   /**
