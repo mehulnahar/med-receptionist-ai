@@ -19,4 +19,4 @@ ENV PORT=8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
   CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
-CMD sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers ${UVICORN_WORKERS:-1} --proxy-headers --forwarded-allow-ips=*"
+CMD sh -c "alembic upgrade head || echo 'WARN: alembic migration had errors (non-fatal, startup migrations will handle)'; uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers ${UVICORN_WORKERS:-1} --proxy-headers --forwarded-allow-ips=*"

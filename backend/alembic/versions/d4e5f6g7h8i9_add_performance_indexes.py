@@ -172,79 +172,66 @@ def upgrade() -> None:
 
     # -----------------------------------------------------------------------
     # APPOINTMENT_REMINDERS — background scheduler queries
+    # (table created by main.py startup, may not exist yet during alembic)
     # -----------------------------------------------------------------------
-    op.create_index(
-        "ix_reminders_practice_status_scheduled",
-        "appointment_reminders",
-        ["practice_id", "status", "scheduled_for"],
-        unique=False,
-        if_not_exists=True,
-    )
-    op.create_index(
-        "ix_reminders_appointment_id",
-        "appointment_reminders",
-        ["appointment_id"],
-        unique=False,
-        if_not_exists=True,
-    )
-    # Partial index for the background scheduler: efficiently find pending reminders
-    # that are due to be sent (status='pending' AND scheduled_for <= now)
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_reminders_pending_scheduled "
-        "ON appointment_reminders(scheduled_for) "
-        "WHERE status = 'pending'"
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'appointment_reminders') THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_reminders_practice_status_scheduled ON appointment_reminders(practice_id, status, scheduled_for)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_reminders_appointment_id ON appointment_reminders(appointment_id)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_reminders_pending_scheduled ON appointment_reminders(scheduled_for) WHERE status = ''pending''';
+            END IF;
+        END $$;
+    """)
 
     # -----------------------------------------------------------------------
     # CALL_FEEDBACK — analytics queries
+    # (table created by main.py startup, may not exist yet during alembic)
     # -----------------------------------------------------------------------
-    op.create_index(
-        "ix_call_feedback_practice_created",
-        "call_feedback",
-        ["practice_id", sa.text("created_at DESC")],
-        unique=False,
-        if_not_exists=True,
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'call_feedback') THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_call_feedback_practice_created ON call_feedback(practice_id, created_at DESC)';
+            END IF;
+        END $$;
+    """)
 
     # -----------------------------------------------------------------------
     # WAITLIST_ENTRIES
+    # (table created by main.py startup, may not exist yet during alembic)
     # -----------------------------------------------------------------------
-    op.create_index(
-        "ix_waitlist_practice_status",
-        "waitlist_entries",
-        ["practice_id", "status"],
-        unique=False,
-        if_not_exists=True,
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'waitlist_entries') THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_waitlist_practice_status ON waitlist_entries(practice_id, status)';
+            END IF;
+        END $$;
+    """)
 
     # -----------------------------------------------------------------------
     # REFILL_REQUESTS
+    # (table created by main.py startup, may not exist yet during alembic)
     # -----------------------------------------------------------------------
-    op.create_index(
-        "ix_refills_practice_status",
-        "refill_requests",
-        ["practice_id", "status"],
-        unique=False,
-        if_not_exists=True,
-    )
-    op.create_index(
-        "ix_refills_patient_id",
-        "refill_requests",
-        ["patient_id"],
-        unique=False,
-        if_not_exists=True,
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'refill_requests') THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_refills_practice_status ON refill_requests(practice_id, status)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_refills_patient_id ON refill_requests(patient_id)';
+            END IF;
+        END $$;
+    """)
 
     # -----------------------------------------------------------------------
     # VOICEMAILS
+    # (table created by main.py startup, may not exist yet during alembic)
     # -----------------------------------------------------------------------
-    op.create_index(
-        "ix_voicemails_practice_status",
-        "voicemails",
-        ["practice_id", "status"],
-        unique=False,
-        if_not_exists=True,
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'voicemails') THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_voicemails_practice_status ON voicemails(practice_id, status)';
+            END IF;
+        END $$;
+    """)
 
     # -----------------------------------------------------------------------
     # USERS — email already UNIQUE (has implicit index), add practice lookup
@@ -259,25 +246,27 @@ def upgrade() -> None:
 
     # -----------------------------------------------------------------------
     # PROMPT_VERSIONS
+    # (table created by main.py startup, may not exist yet during alembic)
     # -----------------------------------------------------------------------
-    op.create_index(
-        "ix_prompt_versions_practice_active",
-        "prompt_versions",
-        ["practice_id", "is_active"],
-        unique=False,
-        if_not_exists=True,
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'prompt_versions') THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_prompt_versions_practice_active ON prompt_versions(practice_id, is_active)';
+            END IF;
+        END $$;
+    """)
 
     # -----------------------------------------------------------------------
     # FEEDBACK_INSIGHTS
+    # (table created by main.py startup, may not exist yet during alembic)
     # -----------------------------------------------------------------------
-    op.create_index(
-        "ix_feedback_insights_practice_status",
-        "feedback_insights",
-        ["practice_id", "status"],
-        unique=False,
-        if_not_exists=True,
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'feedback_insights') THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_feedback_insights_practice_status ON feedback_insights(practice_id, status)';
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:
