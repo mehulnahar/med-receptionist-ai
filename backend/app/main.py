@@ -749,6 +749,8 @@ from app.voice.twilio_relay import router as voice_router
 # Phase 5: Scale & Intelligence
 from app.scale.monitoring_routes import router as monitoring_router
 from app.scale.survey_routes import router as survey_router
+from app.scale.feedback_routes import router as feedback_loop_router
+from app.services.enhanced_reminder_routes import router as enhanced_reminders_router
 
 # Phase 6: Enterprise Features
 from app.enterprise.multi_location_routes import router as location_router
@@ -786,6 +788,8 @@ app.include_router(voice_router, prefix="/api/voice", tags=["Voice Stack"])
 # Phase 5: Scale & Intelligence
 app.include_router(monitoring_router, prefix="/api", tags=["Monitoring"])
 app.include_router(survey_router, prefix="/api", tags=["Surveys"])
+app.include_router(feedback_loop_router, prefix="/api", tags=["Feedback Loop AI"])
+app.include_router(enhanced_reminders_router, prefix="/api/enhanced-reminders", tags=["Enhanced Reminders"])
 
 # Phase 6: Enterprise Features
 app.include_router(location_router, prefix="/api", tags=["Multi-Location"])

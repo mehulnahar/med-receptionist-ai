@@ -324,4 +324,30 @@ async def run_phase5_6_migrations(session: AsyncSession) -> None:
         await session.rollback()
         logger.warning("phase5_6_migrations: practice_api_keys skipped: %s", e)
 
+    # 14. Call analyses table (AI feedback loop)
+    try:
+        await session.execute(text("""
+            CREATE TABLE IF NOT EXISTS call_analyses (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                practice_id UUID NOT NULL REFERENCES practices(id),
+                call_id UUID NOT NULL REFERENCES calls(id),
+                quality_score INTEGER NOT NULL CHECK (quality_score BETWEEN 1 AND 10),
+                missed_intents TEXT[],
+                improvement_suggestions TEXT[],
+                frustration_detected BOOLEAN NOT NULL DEFAULT FALSE,
+                key_phrases TEXT[],
+                analyzed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(call_id)
+            )
+        """))
+        await session.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_call_analyses_practice "
+            "ON call_analyses(practice_id, analyzed_at)"
+        ))
+        await session.commit()
+        logger.info("phase5_6_migrations: call_analyses table ensured")
+    except Exception as e:
+        await session.rollback()
+        logger.warning("phase5_6_migrations: call_analyses table skipped: %s", e)
+
     logger.info("phase5_6_migrations: all Phase 5 & 6 tables complete")
