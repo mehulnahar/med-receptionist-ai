@@ -486,7 +486,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI Medical Receptionist API",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
     # Disable interactive API docs in production — exposes full schema to attackers
     docs_url=None if _is_production else "/docs",
@@ -692,7 +692,7 @@ async def health_check():
     if not db_ok:
         return JSONResponse(
             status_code=503,
-            content={"status": "degraded", "version": "1.0.0", "database": "unavailable"},
+            content={"status": "degraded", "version": "1.1.0", "database": "unavailable"},
         )
 
     # Check background task health — flag stale if no heartbeat in 5 minutes
@@ -704,7 +704,7 @@ async def health_check():
 
     return {
         "status": "healthy",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "database": "connected",
         "background_tasks": {"reminder_loop": reminder_status},
     }
