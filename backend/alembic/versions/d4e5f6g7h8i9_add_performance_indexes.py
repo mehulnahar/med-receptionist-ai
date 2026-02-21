@@ -127,8 +127,22 @@ def upgrade() -> None:
         unique=False,
         if_not_exists=True,
     )
-    # Unique constraint: prevent duplicate patients within a practice.
-    # Uses lower(first_name), lower(last_name), dob as the identity tuple.
+    # Deduplicate patients before creating unique index — keep the earliest record
+    # for each (practice_id, lower(first_name), lower(last_name), dob) combo.
+    op.execute("""
+        DELETE FROM patients
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                    PARTITION BY practice_id, lower(first_name), lower(last_name), dob
+                    ORDER BY created_at ASC
+                ) AS rn
+                FROM patients
+            ) dupes
+            WHERE dupes.rn > 1
+        )
+    """)
+    # Now safe to create unique constraint
     op.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_practice_name_dob "
         "ON patients(practice_id, lower(first_name), lower(last_name), dob)"
