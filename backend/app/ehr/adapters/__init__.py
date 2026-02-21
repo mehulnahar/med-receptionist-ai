@@ -1,0 +1,1 @@
+"""EHR adapter implementations."""

@@ -22,6 +22,33 @@ class Settings(BaseSettings):
     APP_URL: str = "http://localhost:8000"
     APP_ENV: str = "development"
 
+    # Voice Stack (Phase 2)
+    ANTHROPIC_API_KEY: str = ""
+    CLAUDE_SONNET_MODEL: str = "claude-sonnet-4-5-20250929"
+    CLAUDE_HAIKU_MODEL: str = "claude-haiku-4-5-20251001"
+    WHISPER_ENDPOINT: str = ""
+    WHISPER_MODEL_NAME: str = "whisper-medical-v1"
+    CHATTERBOX_ENDPOINT: str = ""
+    CHATTERBOX_VOICE_ID: str = "professional-warm"
+
+    # PHI Encryption (Phase 1 - HIPAA)
+    PHI_ENCRYPTION_BACKEND: str = "fernet"  # "fernet" or "kms"
+    AWS_KMS_KEY_ID: str = ""
+    AWS_REGION: str = "us-east-1"
+
+    # EHR Integration (Phase 4)
+    ATHENA_CLIENT_ID: str = ""
+    ATHENA_CLIENT_SECRET: str = ""
+    DRCHRONO_CLIENT_ID: str = ""
+    DRCHRONO_CLIENT_SECRET: str = ""
+
+    # Stripe Payments (Phase 6)
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
+    # Concurrent call limit (Phase 5)
+    MAX_CONCURRENT_CALLS: int = 20
+
     # Rate limiting (requests per minute per IP)
     RATE_LIMIT_GENERAL: int = 100
     RATE_LIMIT_AUTH: int = 20

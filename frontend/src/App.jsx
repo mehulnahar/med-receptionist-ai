@@ -6,6 +6,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
 import LoadingSpinner from './components/LoadingSpinner'
 import Layout from './components/Layout'
+import SessionTimeoutProvider from './components/SessionTimeout'
 import Login from './pages/Login'
 
 // ---------------------------------------------------------------------------
@@ -23,11 +24,13 @@ const Analytics = lazy(() => import('./pages/Analytics'))
 const Admin = lazy(() => import('./pages/Admin'))
 const Training = lazy(() => import('./pages/Training'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
+const ROIDashboard = lazy(() => import('./pages/ROIDashboard'))
 
 function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <SessionTimeoutProvider>
         <Suspense fallback={<LoadingSpinner fullPage message="Loading..." />}>
           <Routes>
             {/* Public route */}
@@ -78,12 +81,21 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="roi"
+                element={
+                  <ProtectedRoute roles={['practice_admin', 'super_admin']}>
+                    <ROIDashboard />
+                  </ProtectedRoute>
+                }
+              />
             </Route>
 
             {/* Catch-all redirect */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </SessionTimeoutProvider>
       </AuthProvider>
     </ErrorBoundary>
   )

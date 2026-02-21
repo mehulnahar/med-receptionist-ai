@@ -15,6 +15,7 @@ import {
   ChevronRight,
   GraduationCap,
   Wrench,
+  DollarSign,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../contexts/AuthContext'
@@ -25,6 +26,12 @@ const NAV_ITEMS = [
   { label: 'Patients', path: '/patients', icon: Users },
   { label: 'Call Log', path: '/calls', icon: Phone },
   { label: 'Analytics', path: '/analytics', icon: BarChart3 },
+  {
+    label: 'ROI Dashboard',
+    path: '/roi',
+    icon: DollarSign,
+    roles: ['practice_admin', 'super_admin'],
+  },
   {
     label: 'Training',
     path: '/training',

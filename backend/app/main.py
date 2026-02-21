@@ -453,6 +453,56 @@ async def _reminder_check_loop():
                 await asyncio.sleep(30)
 
 
+async def _batch_eligibility_loop():
+    """Nightly loop: pre-verify insurance for next-day appointments.
+
+    Runs once per day at ~2 AM UTC. Uses advisory lock to prevent
+    duplicate runs across multiple workers.
+    """
+    import asyncio
+    from datetime import datetime, timezone
+
+    ADVISORY_LOCK_ID = 987654321
+    logger.info("batch_eligibility_loop: started")
+
+    while True:
+        try:
+            # Sleep until ~2 AM UTC
+            now = datetime.now(timezone.utc)
+            next_run = now.replace(hour=2, minute=0, second=0, microsecond=0)
+            if now >= next_run:
+                from datetime import timedelta
+                next_run += timedelta(days=1)
+            sleep_seconds = (next_run - now).total_seconds()
+            logger.info("batch_eligibility_loop: next run in %.0f seconds", sleep_seconds)
+            await asyncio.sleep(sleep_seconds)
+
+            from app.database import AsyncSessionLocal
+            from sqlalchemy import text as sa_text
+            async with AsyncSessionLocal() as db:
+                lock_result = await db.execute(
+                    sa_text(f"SELECT pg_try_advisory_lock({ADVISORY_LOCK_ID})")
+                )
+                acquired = lock_result.scalar_one()
+                if not acquired:
+                    continue
+
+                try:
+                    from app.commercial.batch_eligibility import run_batch_eligibility_check
+                    results = await run_batch_eligibility_check()
+                    logger.info("batch_eligibility_loop: completed — %s", results)
+                    _background_health["batch_eligibility_last_ok"] = time.time()
+                finally:
+                    await db.execute(
+                        sa_text(f"SELECT pg_advisory_unlock({ADVISORY_LOCK_ID})")
+                    )
+                    await db.commit()
+
+        except Exception as e:
+            logger.warning("batch_eligibility_loop: error: %s", e)
+            await asyncio.sleep(300)  # Retry in 5 min on error
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Run migrations, seed, and start background tasks on startup."""
@@ -464,6 +514,23 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Startup migrations skipped: %s", exc)
 
+    # Run HIPAA compliance migrations (audit tables, password history, etc.)
+    try:
+        from app.hipaa.startup_migrations import run_hipaa_migrations
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            await run_hipaa_migrations(session)
+    except Exception as exc:
+        logger.warning("HIPAA migrations skipped: %s", exc)
+
+    # Run Phase 5 & 6 migrations (surveys, locations, billing, portal, etc.)
+    try:
+        from app.scale.startup_migrations import run_phase5_6_migrations
+        async with AsyncSessionLocal() as session:
+            await run_phase5_6_migrations(session)
+    except Exception as exc:
+        logger.warning("Phase 5/6 migrations skipped: %s", exc)
+
     # Run seed (idempotent)
     try:
         from app.seed import seed_database
@@ -474,18 +541,35 @@ async def lifespan(app: FastAPI):
     # Start background reminder scheduler
     reminder_task = asyncio.create_task(_reminder_check_loop())
 
+    # Start nightly batch eligibility check loop
+    batch_eligibility_task = asyncio.create_task(_batch_eligibility_loop())
+
+    # Start waitlist notification expiry loop
+    from app.scale.waitlist_notifier import waitlist_notification_loop
+    waitlist_task = asyncio.create_task(waitlist_notification_loop())
+
     logger.info("Application startup complete")
     yield
 
     # --- Graceful shutdown ---
     logger.info("Shutting down — cancelling background tasks...")
 
-    # 1. Cancel the background reminder task
+    # 1. Cancel the background tasks
     reminder_task.cancel()
+    batch_eligibility_task.cancel()
+    waitlist_task.cancel()
     try:
         await reminder_task
     except asyncio.CancelledError:
         logger.info("reminder_check_loop: stopped")
+    try:
+        await batch_eligibility_task
+    except asyncio.CancelledError:
+        logger.info("batch_eligibility_loop: stopped")
+    try:
+        await waitlist_task
+    except asyncio.CancelledError:
+        logger.info("waitlist_notification_loop: stopped")
 
     # 2. Dispose the database engine to close all pooled connections
     try:
@@ -545,6 +629,13 @@ async def _global_exception_handler(request: Request, exc: Exception):
 # Middleware stack (last added = outermost = processes requests first)
 # Request flow: CORS -> RateLimit -> Security -> Routes
 # ---------------------------------------------------------------------------
+# HIPAA PHI Read Audit Middleware — logs all GET requests to PHI endpoints
+try:
+    from app.hipaa.audit_read_log import PHIReadAuditMiddleware
+    app.add_middleware(PHIReadAuditMiddleware)
+except Exception as e:
+    logger.warning("PHI audit middleware not loaded: %s", e)
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
@@ -650,6 +741,22 @@ from app.routes.waitlist import router as waitlist_router
 from app.routes.analytics import router as analytics_router
 from app.routes.training import router as training_router
 from app.routes.onboarding import router as onboarding_router
+from app.routes.hipaa import router as hipaa_router
+from app.routes.roi import router as roi_router
+from app.routes.ehr import router as ehr_router
+from app.voice.twilio_relay import router as voice_router
+
+# Phase 5: Scale & Intelligence
+from app.scale.monitoring_routes import router as monitoring_router
+from app.scale.survey_routes import router as survey_router
+
+# Phase 6: Enterprise Features
+from app.enterprise.multi_location_routes import router as location_router
+from app.enterprise.billing_routes import router as billing_router
+from app.enterprise.payment_routes import router as payment_router
+from app.enterprise.patient_portal_routes import router as portal_router
+from app.enterprise.recall_routes import router as recall_router
+from app.enterprise.self_service_routes import router as signup_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
@@ -671,6 +778,22 @@ app.include_router(waitlist_router, prefix="/api/waitlist", tags=["Waitlist"])
 app.include_router(analytics_router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(training_router, prefix="/api/training", tags=["Training Pipeline"])
 app.include_router(onboarding_router, prefix="/api/practice/onboarding", tags=["Onboarding"])
+app.include_router(hipaa_router, prefix="/api", tags=["HIPAA Compliance"])
+app.include_router(roi_router, prefix="/api", tags=["ROI Dashboard"])
+app.include_router(ehr_router, prefix="/api", tags=["EHR Integration"])
+app.include_router(voice_router, prefix="/api/voice", tags=["Voice Stack"])
+
+# Phase 5: Scale & Intelligence
+app.include_router(monitoring_router, prefix="/api", tags=["Monitoring"])
+app.include_router(survey_router, prefix="/api", tags=["Surveys"])
+
+# Phase 6: Enterprise Features
+app.include_router(location_router, prefix="/api", tags=["Multi-Location"])
+app.include_router(billing_router, prefix="/api", tags=["Billing"])
+app.include_router(payment_router, prefix="/api", tags=["Payments"])
+app.include_router(portal_router, prefix="/api", tags=["Patient Portal"])
+app.include_router(recall_router, prefix="/api", tags=["Recall Campaigns"])
+app.include_router(signup_router, prefix="/api", tags=["Self-Service Onboarding"])
 
 
 @app.post("/api/client-errors", status_code=204)
@@ -731,9 +854,19 @@ async def health_check():
         age = time.time() - reminder_last_ok
         reminder_status = "ok" if age < 300 else f"stale ({int(age)}s ago)"
 
+    batch_last_ok = _background_health.get("batch_eligibility_last_ok")
+    batch_status = "unknown"
+    if batch_last_ok:
+        age = time.time() - batch_last_ok
+        batch_status = "ok" if age < 90000 else f"stale ({int(age)}s ago)"
+
     return {
         "status": "healthy",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "database": "connected",
-        "background_tasks": {"reminder_loop": reminder_status},
+        "background_tasks": {
+            "reminder_loop": reminder_status,
+            "batch_eligibility": batch_status,
+            "waitlist_notifier": "active",
+        },
     }
