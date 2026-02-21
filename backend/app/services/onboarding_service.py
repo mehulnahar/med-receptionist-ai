@@ -966,57 +966,57 @@ async def get_onboarding_status(db: AsyncSession, practice_id: UUID) -> dict:
     """
     Check which onboarding steps are complete by reading PracticeConfig.
 
-    Returns a dict with step names and completion booleans.
-    A step is considered complete if its corresponding value in PracticeConfig
-    is non-empty / non-null.
+    Returns a dict matching the OnboardingStatusResponse schema with
+    step-level completion flags and detail strings.
     """
     config = await _get_practice_config(db, practice_id)
 
     vapi_key_set = bool(config.vapi_api_key)
     vapi_assistant_created = bool(config.vapi_assistant_id)
     vapi_phone_assigned = bool(config.vapi_phone_number_id)
-    twilio_configured = bool(
-        config.twilio_account_sid
-        and config.twilio_auth_token
-        and config.twilio_phone_number
-    )
+    twilio_creds_set = bool(config.twilio_account_sid and config.twilio_auth_token)
+    twilio_phone_set = bool(config.twilio_phone_number)
+    # OpenAI key is stored in env / settings, not per-practice — mark as complete
+    # if the global OPENAI_API_KEY is configured
+    settings = get_settings()
+    openai_key_set = bool(getattr(settings, "OPENAI_API_KEY", None))
     stedi_configured = bool(config.stedi_api_key and config.stedi_enabled)
 
-    steps = {
-        "vapi_api_key": {
-            "complete": vapi_key_set,
-            "label": "Vapi API Key",
-        },
-        "vapi_assistant": {
-            "complete": vapi_assistant_created,
-            "label": "Vapi Assistant Created",
-            "assistant_id": config.vapi_assistant_id,
-        },
-        "vapi_phone_number": {
-            "complete": vapi_phone_assigned,
-            "label": "Vapi Phone Number Assigned",
-            "phone_number_id": config.vapi_phone_number_id,
-        },
-        "twilio": {
-            "complete": twilio_configured,
-            "label": "Twilio SMS Configuration",
-            "phone_number": config.twilio_phone_number,
-        },
-        "stedi_insurance": {
-            "complete": stedi_configured,
-            "label": "Stedi Insurance Verification",
-        },
-    }
-
-    completed_count = sum(1 for s in steps.values() if s["complete"])
-    total_count = len(steps)
+    steps = [
+        vapi_key_set, vapi_assistant_created, vapi_phone_assigned,
+        twilio_creds_set, twilio_phone_set, openai_key_set, stedi_configured,
+    ]
 
     return {
-        "steps": steps,
-        "completed": completed_count,
-        "total": total_count,
-        "all_complete": completed_count == total_count,
-        "progress_percent": round((completed_count / total_count) * 100) if total_count else 0,
+        "vapi_key": {
+            "completed": vapi_key_set,
+            "detail": "API key saved" if vapi_key_set else None,
+        },
+        "vapi_assistant": {
+            "completed": vapi_assistant_created,
+            "detail": config.vapi_assistant_id if vapi_assistant_created else None,
+        },
+        "vapi_phone": {
+            "completed": vapi_phone_assigned,
+            "detail": config.vapi_phone_number_id if vapi_phone_assigned else None,
+        },
+        "twilio_credentials": {
+            "completed": twilio_creds_set,
+            "detail": "Credentials saved" if twilio_creds_set else None,
+        },
+        "twilio_phone": {
+            "completed": twilio_phone_set,
+            "detail": config.twilio_phone_number if twilio_phone_set else None,
+        },
+        "openai_key": {
+            "completed": openai_key_set,
+            "detail": "API key configured" if openai_key_set else None,
+        },
+        "stedi_key": {
+            "completed": stedi_configured,
+            "detail": "API key saved" if stedi_configured else None,
+        },
+        "all_complete": all(steps),
     }
 
 
