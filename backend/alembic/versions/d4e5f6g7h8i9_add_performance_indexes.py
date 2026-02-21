@@ -127,24 +127,10 @@ def upgrade() -> None:
         unique=False,
         if_not_exists=True,
     )
-    # Deduplicate patients before creating unique index — keep the earliest record
-    # for each (practice_id, lower(first_name), lower(last_name), dob) combo.
-    op.execute("""
-        DELETE FROM patients
-        WHERE id IN (
-            SELECT id FROM (
-                SELECT id, ROW_NUMBER() OVER (
-                    PARTITION BY practice_id, lower(first_name), lower(last_name), dob
-                    ORDER BY created_at ASC
-                ) AS rn
-                FROM patients
-            ) dupes
-            WHERE dupes.rn > 1
-        )
-    """)
-    # Now safe to create unique constraint
+    # Non-unique index for fast patient lookup by name + DOB within a practice.
+    # NOT unique because multiple patients can share the same name and birthday.
     op.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_practice_name_dob "
+        "CREATE INDEX IF NOT EXISTS ix_patients_practice_name_dob "
         "ON patients(practice_id, lower(first_name), lower(last_name), dob)"
     )
 
@@ -284,6 +270,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS ix_patients_practice_name_dob")
     op.execute("DROP INDEX IF EXISTS uq_patients_practice_name_dob")
     op.execute("DROP INDEX IF EXISTS ix_reminders_pending_scheduled")
     op.drop_index("ix_calls_caller_phone", table_name="calls", if_exists=True)

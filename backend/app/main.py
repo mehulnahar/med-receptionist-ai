@@ -327,6 +327,35 @@ async def _run_startup_migrations():
             await session.rollback()
             logger.warning("startup_migrations: training tables migration skipped: %s", e)
 
+        # Drop overly-strict unique patient index (replaced with non-unique)
+        try:
+            await session.execute(text(
+                "DROP INDEX IF EXISTS uq_patients_practice_name_dob"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: dropped unique patient name index (replaced with non-unique)")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: patient index cleanup skipped: %s", e)
+
+        # Assign admin user to Stefanides practice if not already assigned
+        try:
+            result = await session.execute(text("""
+                UPDATE users SET practice_id = (
+                    SELECT id FROM practices LIMIT 1
+                )
+                WHERE email = 'admin@mindcrew.tech'
+                AND practice_id IS NULL
+            """))
+            if result.rowcount > 0:
+                await session.commit()
+                logger.info("startup_migrations: assigned admin user to practice")
+            else:
+                await session.rollback()
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: admin practice assignment skipped: %s", e)
+
         # Create waitlist_entries table
         try:
             await session.execute(text("""
