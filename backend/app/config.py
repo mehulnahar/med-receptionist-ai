@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""
     VAPI_API_KEY: str = ""
     VAPI_WEBHOOK_SECRET: str = ""
     STEDI_API_KEY: str = ""

@@ -7,6 +7,7 @@ Patients receive an SMS with a secure link to complete intake forms
 
 import hashlib
 import logging
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -34,12 +35,12 @@ class PatientPortalService:
         """Send a patient intake form link via SMS."""
         settings = get_settings()
 
-        # Create JWT token
+        # Create JWT token — only include IDs, not PII (name/phone stay server-side)
+        token_id = secrets.token_urlsafe(16)
         payload = {
             "type": "intake",
             "practice_id": practice_id,
-            "patient_phone": patient_phone,
-            "patient_name": patient_name,
+            "tid": token_id,
             "appointment_id": appointment_id or "",
             "exp": datetime.now(timezone.utc) + timedelta(hours=INTAKE_TOKEN_EXPIRY_HOURS),
         }
@@ -287,7 +288,7 @@ async def _send_portal_sms(phone: str, message: str, practice_id: str) -> bool:
     try:
         from twilio.rest import Client
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        client.messages.create(body=message, from_=settings.TWILIO_ACCOUNT_SID, to=phone)
+        client.messages.create(body=message, from_=settings.TWILIO_PHONE_NUMBER, to=phone)
         return True
     except Exception as e:
         logger.error("Portal SMS failed to %s: %s", phone, e)

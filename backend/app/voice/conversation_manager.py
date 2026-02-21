@@ -179,6 +179,7 @@ class ConversationManager:
         )
 
         # 5. Text to Speech
+        tts_ms = 0.0
         if on_audio_response and response_text:
             tts_start = time.monotonic()
             audio = await self._tts.synthesize(response_text, session.language)
@@ -195,8 +196,7 @@ class ConversationManager:
         total_ms = (time.monotonic() - pipeline_start) * 1000
         logger.info(
             "Call %s turn %d: TOTAL=%.0fms (STT=%.0f LLM=%.0f TTS=%.0f)",
-            call_id, session.turn_count, total_ms, stt_ms, llm_ms,
-            (time.monotonic() - pipeline_start) * 1000 - stt_ms - llm_ms,
+            call_id, session.turn_count, total_ms, stt_ms, llm_ms, tts_ms,
         )
 
         return response_text

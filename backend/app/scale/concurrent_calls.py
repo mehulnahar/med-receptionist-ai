@@ -53,20 +53,22 @@ class ConcurrentCallManager:
         self, call_id: str, practice_id: str, caller_phone: str
     ) -> bool:
         """Try to acquire a call slot. Returns False if at capacity."""
-        acquired = self._semaphore._value > 0
-        if not acquired:
-            async with self._lock:
+        async with self._lock:
+            # Atomic check-and-acquire under lock — no TOCTOU race
+            if len(self._active) >= self._max_concurrent:
                 self._rejected_count += 1
-            logger.warning(
-                "Call rejected — at capacity (%d/%d): call=%s practice=%s",
-                self._max_concurrent,
-                self._max_concurrent,
-                call_id,
-                practice_id,
-            )
-            return False
+                logger.warning(
+                    "Call rejected — at capacity (%d/%d): call=%s practice=%s",
+                    self._max_concurrent,
+                    self._max_concurrent,
+                    call_id,
+                    practice_id,
+                )
+                return False
 
-        await self._semaphore.acquire()
+            # Safe to acquire — we hold the lock
+            await self._semaphore.acquire()
+
         async with self._lock:
             self._active[call_id] = ActiveCall(
                 call_id=call_id,
@@ -90,9 +92,11 @@ class ConcurrentCallManager:
 
     async def release_slot(self, call_id: str) -> None:
         """Release a call slot when the call ends."""
+        should_release = False
         async with self._lock:
             call = self._active.pop(call_id, None)
             if call:
+                should_release = True
                 duration = time.monotonic() - call.start_time
                 self._total_duration += duration
                 logger.info(
@@ -102,8 +106,11 @@ class ConcurrentCallManager:
                     len(self._active),
                     self._max_concurrent,
                 )
+            else:
+                logger.debug("release_slot called for unknown call_id=%s — ignoring", call_id)
 
-        self._semaphore.release()
+        if should_release:
+            self._semaphore.release()
 
     async def get_active_calls(self) -> list[dict]:
         """Return info about all currently active calls."""

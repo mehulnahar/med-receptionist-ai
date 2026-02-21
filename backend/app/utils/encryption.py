@@ -77,8 +77,9 @@ class EncryptedString(TypeDecorator):
         if f is None:
             return value  # no key — plaintext fallback
 
+        # Fernet.encrypt() returns base64url bytes — use directly, no double-encoding
         encrypted = f.encrypt(value.encode("utf-8"))
-        return self._ENC_PREFIX + base64.urlsafe_b64encode(encrypted).decode("ascii")
+        return self._ENC_PREFIX + encrypted.decode("ascii")
 
     def process_result_value(self, value, dialect):
         """Decrypt when reading from the database."""
@@ -95,7 +96,8 @@ class EncryptedString(TypeDecorator):
             return value  # return raw encrypted string (caller must handle)
 
         try:
-            token = base64.urlsafe_b64decode(value[len(self._ENC_PREFIX):])
+            # Fernet tokens are already base64url — pass directly
+            token = value[len(self._ENC_PREFIX):].encode("ascii")
             return f.decrypt(token).decode("utf-8")
         except (InvalidToken, Exception):
             logger.error("Failed to decrypt value — key may have changed")

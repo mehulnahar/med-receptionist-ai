@@ -355,7 +355,7 @@ async def _send_survey_sms(
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
         client.messages.create(
             body=message,
-            from_=settings.TWILIO_ACCOUNT_SID,  # Should use a Twilio number
+            from_=settings.TWILIO_PHONE_NUMBER,
             to=phone,
         )
         logger.info("Survey SMS sent to %s for practice %s", phone, practice_id)

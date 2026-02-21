@@ -430,8 +430,12 @@ class TestAuthorizationSecurity:
 
         user_a = _mock_user(practice_id=PRACTICE_A_ID, role="practice_admin")
 
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.query_params = {}
+
         # The middleware extracts practice_id from user, which is always their own
-        practice_id = await get_practice_id(current_user=user_a)
+        practice_id = await get_practice_id(request=mock_request, current_user=user_a)
         assert practice_id == PRACTICE_A_ID
         assert practice_id != PRACTICE_B_ID, "Must never return another practice's ID"
 
@@ -513,8 +517,12 @@ class TestAuthorizationSecurity:
 
         super_admin = _mock_user(role="super_admin", practice_id=None)
 
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.query_params = {}
+
         with pytest.raises(HTTPException) as exc_info:
-            await get_practice_id(current_user=super_admin)
+            await get_practice_id(request=mock_request, current_user=super_admin)
         assert exc_info.value.status_code == 400
         assert "practice" in exc_info.value.detail.lower()
 
@@ -528,8 +536,12 @@ class TestAuthorizationSecurity:
 
         orphan_user = _mock_user(role="secretary", practice_id=None)
 
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.query_params = {}
+
         with pytest.raises(HTTPException) as exc_info:
-            await get_practice_id(current_user=orphan_user)
+            await get_practice_id(request=mock_request, current_user=orphan_user)
         assert exc_info.value.status_code == 403
 
     # --- Secretary Allowed on Staff Endpoints ---

@@ -1105,7 +1105,7 @@ class TestProcessWaitlistResponse:
             new_callable=AsyncMock,
             return_value=True,
         ):
-            result = await process_waitlist_response(mock_db, "+15551111111", "YES")
+            result = await process_waitlist_response(mock_db, "+15551111111", "YES ABC123")
 
         assert result["status"] == "booked"
         assert result["patient_name"] == "Maria Garcia"
@@ -1134,7 +1134,7 @@ class TestProcessWaitlistResponse:
             new_callable=AsyncMock,
             return_value=True,
         ):
-            result = await process_waitlist_response(mock_db, "+15552222222", "SI")
+            result = await process_waitlist_response(mock_db, "+15552222222", "SI ABC123")
 
         assert result["status"] == "booked"
 
@@ -1156,7 +1156,7 @@ class TestProcessWaitlistResponse:
             side_effect=[mock_result, mock_update_result]
         )
 
-        result = await process_waitlist_response(mock_db, "+15553333333", "NO")
+        result = await process_waitlist_response(mock_db, "+15553333333", "NO ABC123")
         assert result["status"] == "declined"
         assert result["patient_name"] == "Ana Martinez"
 
@@ -1167,7 +1167,7 @@ class TestProcessWaitlistResponse:
         mock_result.fetchone.return_value = None
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        result = await process_waitlist_response(mock_db, "+15559999999", "YES")
+        result = await process_waitlist_response(mock_db, "+15559999999", "YES ABC123")
         assert result["status"] == "no_active_notification"
         assert result["phone"] == "+15559999999"
 
@@ -1195,7 +1195,7 @@ class TestProcessWaitlistResponse:
             new_callable=AsyncMock,
             return_value=True,
         ):
-            result = await process_waitlist_response(mock_db, "+15554444444", "yes")
+            result = await process_waitlist_response(mock_db, "+15554444444", "yes ABC123")
 
         assert result["status"] == "booked"
 
@@ -1218,7 +1218,7 @@ class TestProcessWaitlistResponse:
             side_effect=[mock_result, mock_update_result]
         )
 
-        result = await process_waitlist_response(mock_db, "+15555555555", "MAYBE")
+        result = await process_waitlist_response(mock_db, "+15555555555", "MAYBE ABC123")
         assert result["status"] == "declined"
 
 

@@ -475,6 +475,11 @@ async def update_appointment_status(
             detail="Appointment not found",
         )
 
+    if request.status not in APPOINTMENT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status. Must be one of: {', '.join(APPOINTMENT_STATUSES)}",
+        )
     appt.status = request.status
     if request.notes is not None:
         appt.notes = request.notes

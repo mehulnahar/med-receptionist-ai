@@ -10,7 +10,10 @@ from uuid import UUID
 
 
 class TTLCache:
-    """Thread-safe in-memory cache with per-key TTL expiry."""
+    """Coroutine-safe in-memory cache with per-key TTL expiry.
+
+    Safe to use from async code (single-threaded event loop). Not thread-safe.
+    """
 
     def __init__(self, default_ttl: int = 300):
         """

@@ -11,6 +11,8 @@ import time
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Optional
 
+import httpx
+
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -252,6 +254,21 @@ class ClaudeLLMEngine:
         self.sonnet_model = getattr(settings, "CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
         self.haiku_model = getattr(settings, "CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001")
         self._sessions: dict[str, ConversationSession] = {}
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create a shared httpx client for connection reuse."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                base_url="https://api.anthropic.com",
+                timeout=httpx.Timeout(30.0, connect=5.0),
+                headers={
+                    "x-api-key": self.api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+            )
+        return self._http_client
 
     def create_session(
         self,
@@ -298,76 +315,66 @@ class ClaudeLLMEngine:
         model_id = self.sonnet_model if model == "sonnet" else self.haiku_model
 
         try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                messages = [
-                    {"role": t.role, "content": t.content}
-                    for t in session.turns
-                ]
+            client = await self._get_client()
+            messages = [
+                {"role": t.role, "content": t.content}
+                for t in session.turns
+            ]
 
-                body = {
-                    "model": model_id,
-                    "max_tokens": 1024,
-                    "system": [
-                        {
-                            "type": "text",
-                            "text": session.system_prompt,
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ],
-                    "messages": messages,
-                }
+            body = {
+                "model": model_id,
+                "max_tokens": 1024,
+                "system": [
+                    {
+                        "type": "text",
+                        "text": session.system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                "messages": messages,
+            }
 
-                if use_tools:
-                    body["tools"] = RECEPTIONIST_TOOLS
+            if use_tools:
+                body["tools"] = RECEPTIONIST_TOOLS
 
-                response = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    json=body,
-                    headers={
-                        "x-api-key": self.api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    timeout=httpx.Timeout(30.0, connect=5.0),
-                )
-                response.raise_for_status()
-                data = response.json()
+            response = await client.post("/v1/messages", json=body)
+            response.raise_for_status()
+            data = response.json()
 
-                # Track token usage
-                usage = data.get("usage", {})
-                session.total_input_tokens += usage.get("input_tokens", 0)
-                session.total_output_tokens += usage.get("output_tokens", 0)
+            # Track token usage
+            usage = data.get("usage", {})
+            session.total_input_tokens += usage.get("input_tokens", 0)
+            session.total_output_tokens += usage.get("output_tokens", 0)
 
-                # Extract text content and tool_use blocks
-                text_parts = []
-                tool_calls = []
-                for block in data.get("content", []):
-                    if block.get("type") == "text":
-                        text_parts.append(block["text"])
-                    elif block.get("type") == "tool_use":
-                        tool_calls.append(block)
+            # Extract text content and tool_use blocks
+            text_parts = []
+            tool_calls = []
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    text_parts.append(block["text"])
+                elif block.get("type") == "tool_use":
+                    tool_calls.append(block)
 
-                assistant_text = " ".join(text_parts) if text_parts else ""
+            assistant_text = " ".join(text_parts) if text_parts else ""
 
-                # If Claude requested tool calls, log them for now.
-                # Tool execution is handled at the ConversationManager level
-                # via the Vapi webhook / booking service integration.
-                if tool_calls:
-                    for tc in tool_calls:
-                        logger.info(
-                            "LLM tool_use for call %s: %s(%s)",
-                            call_id, tc.get("name"), json.dumps(tc.get("input", {}))[:200],
-                        )
-                    # If no text but tool calls exist, provide placeholder
-                    if not assistant_text:
-                        assistant_text = "Let me check that for you, one moment."
+            # If Claude requested tool calls, log them for now.
+            # Tool execution is handled at the ConversationManager level
+            # via the Vapi webhook / booking service integration.
+            if tool_calls:
+                for tc in tool_calls:
+                    logger.info(
+                        "LLM tool_use for call %s: %s(%s)",
+                        call_id, tc.get("name"), json.dumps(tc.get("input", {}))[:200],
+                    )
+                # If no text but tool calls exist, provide placeholder
+                if not assistant_text:
+                    assistant_text = "Let me check that for you, one moment."
 
-                session.turns.append(
-                    ConversationTurn(role="assistant", content=assistant_text)
-                )
+            session.turns.append(
+                ConversationTurn(role="assistant", content=assistant_text)
+            )
 
-                return assistant_text
+            return assistant_text
 
         except Exception as e:
             logger.error("Claude API error for call %s: %s", call_id, e)

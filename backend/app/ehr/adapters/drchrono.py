@@ -27,6 +27,10 @@ class DrChronoAdapter(EHRAdapter):
         self.access_token: str = kwargs.get("access_token", "")
         self.refresh_token: str = kwargs.get("refresh_token", "")
         self._client: Optional[httpx.AsyncClient] = None
+        # Configurable office hours for slot generation (defaults: 9AM-5PM, 30min)
+        self.office_start_hour: int = kwargs.get("office_start_hour", 9)
+        self.office_end_hour: int = kwargs.get("office_end_hour", 17)
+        self.slot_duration_minutes: int = kwargs.get("slot_duration_minutes", 30)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -146,15 +150,15 @@ class DrChronoAdapter(EHRAdapter):
                 dt = datetime.fromisoformat(a["scheduled_time"].replace("Z", "+00:00"))
                 booked_times.add(dt.time())
 
-        # Generate slots (9 AM to 5 PM, 30 min intervals by default)
+        # Generate slots based on configurable office hours
         slots = []
-        for hour in range(9, 17):
-            for minute in [0, 30]:
+        for hour in range(self.office_start_hour, self.office_end_hour):
+            for minute in range(0, 60, self.slot_duration_minutes):
                 t = time(hour, minute)
                 slots.append(EHRSlot(
                     date=target_date,
                     time=t,
-                    duration_minutes=30,
+                    duration_minutes=self.slot_duration_minutes,
                     provider_ehr_id=provider_id,
                     is_available=t not in booked_times,
                 ))

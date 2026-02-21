@@ -385,6 +385,16 @@ async def _run_startup_migrations():
             await session.rollback()
             logger.warning("startup_migrations: waitlist_entries table migration skipped: %s", e)
 
+        # Add notification_token column for tenant-safe waitlist replies
+        try:
+            await session.execute(text(
+                "ALTER TABLE waitlist_entries "
+                "ADD COLUMN IF NOT EXISTS notification_token VARCHAR(10)"
+            ))
+            await session.commit()
+        except Exception:
+            await session.rollback()
+
 
 async def _reminder_check_loop():
     """Background loop that processes pending appointment reminders every 60 seconds.

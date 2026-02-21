@@ -411,8 +411,10 @@ class TestPatientPortalTokens:
         assert payload is not None
         assert payload["type"] == "intake"
         assert payload["practice_id"] == pid
-        assert payload["patient_phone"] == "+15551234567"
-        assert payload["patient_name"] == "Maria Garcia"
+        # PII (phone, name) no longer in token — stored server-side only
+        assert "patient_phone" not in payload
+        assert "patient_name" not in payload
+        assert "tid" in payload  # opaque token ID instead
 
     def test_expired_token_returns_none(self, _portal_jwt_env):
         """An expired JWT should be rejected."""

@@ -8,6 +8,7 @@ expiry, and cascading to the next person in line.
 
 import asyncio
 import logging
+import secrets
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import text
@@ -81,16 +82,20 @@ async def on_appointment_cancelled(
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
 
     for entry in entries:
+        # Generate a short unique token to identify this notification
+        # The patient replies "YES <token>" so we can match the right entry
+        token = secrets.token_hex(3).upper()  # e.g. "A1B2C3"
+
         # Build bilingual message
         msg_en = (
             f"Great news! A {appt_time_str} appointment on {appt_date_str} "
             f"with Dr. {provider_name} just opened up. "
-            f"Reply YES within 30 min to book it, or it goes to the next person."
+            f"Reply YES {token} within 30 min to book it, or it goes to the next person."
         )
         msg_es = (
             f"Buenas noticias! Una cita a las {appt_time_str} el {appt_date_str} "
             f"con Dr. {provider_name} acaba de abrirse. "
-            f"Responda SI en 30 min para reservarla."
+            f"Responda SI {token} en 30 min para reservarla."
         )
         full_message = f"{msg_en}\n---\n{msg_es}"
 
@@ -98,17 +103,18 @@ async def on_appointment_cancelled(
             entry.patient_phone, full_message, str(appt.practice_id)
         )
 
-        # Update entry status
+        # Update entry status with notification token
         await db.execute(
             text("""
                 UPDATE waitlist_entries
                 SET status = 'notified',
                     notified_at = NOW(),
                     expires_at = :expires_at,
+                    notification_token = :token,
                     updated_at = NOW()
                 WHERE id = :eid
             """),
-            {"eid": str(entry.id), "expires_at": expires_at},
+            {"eid": str(entry.id), "expires_at": expires_at, "token": token},
         )
 
         notified.append({
@@ -135,23 +141,53 @@ async def process_waitlist_response(
     YES/SI → book the appointment
     NO/anything else → reset to waiting, notify next person
     """
-    response_upper = response_text.strip().upper()
-    is_yes = response_upper in ("YES", "SI", "SÍ", "Y", "S")
+    parts = response_text.strip().upper().split()
+    keyword = parts[0] if parts else ""
+    token = parts[1] if len(parts) > 1 else None
+    is_yes = keyword in ("YES", "SI", "SÍ", "Y", "S")
 
-    # Find most recent 'notified' entry for this phone that hasn't expired
-    result = await db.execute(
-        text("""
-            SELECT id, practice_id, patient_name, patient_phone,
-                   appointment_type_id, notified_at
-            FROM waitlist_entries
-            WHERE patient_phone = :phone
-              AND status = 'notified'
-              AND (expires_at IS NULL OR expires_at > NOW())
-            ORDER BY notified_at DESC
-            LIMIT 1
-        """),
-        {"phone": phone_number},
-    )
+    # If a token was included, match by token (tenant-safe).
+    # Otherwise fall back to phone + practice_id scoping via most-recent match.
+    if token:
+        result = await db.execute(
+            text("""
+                SELECT id, practice_id, patient_name, patient_phone,
+                       appointment_type_id, notified_at
+                FROM waitlist_entries
+                WHERE patient_phone = :phone
+                  AND notification_token = :token
+                  AND status = 'notified'
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                LIMIT 1
+            """),
+            {"phone": phone_number, "token": token},
+        )
+    else:
+        # Legacy fallback — no token in reply. Match by phone but only if
+        # exactly ONE active notification exists (refuse ambiguous matches).
+        result = await db.execute(
+            text("""
+                SELECT id, practice_id, patient_name, patient_phone,
+                       appointment_type_id, notified_at
+                FROM waitlist_entries
+                WHERE patient_phone = :phone
+                  AND status = 'notified'
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                ORDER BY notified_at DESC
+                LIMIT 2
+            """),
+            {"phone": phone_number},
+        )
+        rows = result.fetchall()
+        if len(rows) > 1:
+            logger.warning(
+                "Ambiguous waitlist reply from %s — %d active notifications across practices. "
+                "Ignoring to prevent cross-tenant booking.",
+                phone_number, len(rows),
+            )
+            return {"status": "ambiguous_multi_practice", "phone": phone_number}
+        # Re-wrap as a single-row result for uniform handling below
+        result = type("FakeResult", (), {"fetchone": lambda self: rows[0] if rows else None})()
     entry = result.fetchone()
 
     if not entry:
@@ -298,7 +334,7 @@ async def _send_waitlist_sms(
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
         client.messages.create(
             body=message,
-            from_=settings.TWILIO_ACCOUNT_SID,
+            from_=settings.TWILIO_PHONE_NUMBER,
             to=phone,
         )
         logger.info("Waitlist SMS sent to %s (practice=%s)", phone, practice_id)

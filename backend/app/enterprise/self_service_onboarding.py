@@ -6,6 +6,7 @@ MindCrew involvement.
 """
 
 import hashlib
+import hmac
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
@@ -92,7 +93,7 @@ class SelfServiceOnboardingService:
                 client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
                 client.messages.create(
                     body=f"Your AI Receptionist verification code: {code}",
-                    from_=settings.TWILIO_ACCOUNT_SID,
+                    from_=settings.TWILIO_PHONE_NUMBER,
                     to=phone,
                 )
             except Exception as e:
@@ -124,7 +125,7 @@ class SelfServiceOnboardingService:
         if row.code_expires_at and datetime.now(timezone.utc) > row.code_expires_at:
             return False  # Expired
 
-        if row.verification_code != code:
+        if not hmac.compare_digest(row.verification_code, code):
             return False
 
         await db.execute(
@@ -169,7 +170,7 @@ class SelfServiceOnboardingService:
                 client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
                 client.messages.create(
                     body=f"Your verification code: {code}",
-                    from_=settings.TWILIO_ACCOUNT_SID,
+                    from_=settings.TWILIO_PHONE_NUMBER,
                     to=row.phone,
                 )
             except Exception as e:

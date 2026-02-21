@@ -362,9 +362,11 @@ class GenericFHIRAdapter(EHRAdapter):
         params = {}
         if provider_id:
             params["actor"] = f"Practitioner/{provider_id}"
-        if start_date:
+        if start_date and end_date:
+            params["date"] = [f"ge{start_date.isoformat()}", f"le{end_date.isoformat()}"]
+        elif start_date:
             params["date"] = f"ge{start_date.isoformat()}"
-        if end_date:
+        elif end_date:
             params["date"] = f"le{end_date.isoformat()}"
 
         response = await client.get(

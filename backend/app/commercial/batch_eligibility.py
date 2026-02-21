@@ -84,6 +84,20 @@ async def _verify_practice_appointments(
     appt_list = list(appointments.scalars().all())
     results["total"] = len(appt_list)
 
+    # Track which patients we've already checked in this run to avoid
+    # re-checking on retry and wasting Stedi API credits.
+    already_checked = set()
+    check_result = await db.execute(
+        text("""
+            SELECT DISTINCT patient_id FROM insurance_verifications
+            WHERE practice_id = :pid
+              AND verified_at::date = CURRENT_DATE
+        """),
+        {"pid": str(practice_id)},
+    )
+    for row in check_result.fetchall():
+        already_checked.add(str(row.patient_id))
+
     for appt in appt_list:
         # Get patient
         patient_result = await db.execute(
@@ -92,6 +106,11 @@ async def _verify_practice_appointments(
         patient = patient_result.scalar_one_or_none()
 
         if not patient:
+            results["skipped"] += 1
+            continue
+
+        # Skip if already verified today (idempotent on retry)
+        if str(patient.id) in already_checked:
             results["skipped"] += 1
             continue
 
@@ -112,6 +131,7 @@ async def _verify_practice_appointments(
                 dob=patient.dob,
             )
             await db.commit()
+            already_checked.add(str(patient.id))
 
             if result.get("verified"):
                 results["verified"] += 1
