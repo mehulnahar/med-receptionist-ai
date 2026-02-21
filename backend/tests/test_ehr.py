@@ -3,7 +3,7 @@ Tests for the EHR module: adapter factory, dataclasses, athenahealth, drchrono.
 All HTTP calls are mocked -- no live EHR connections required.
 """
 import pytest
-from datetime import date, time, datetime
+from datetime import date, time, datetime, timezone
 from unittest.mock import patch, AsyncMock, MagicMock
 import httpx
 
@@ -113,7 +113,7 @@ async def test_athena_search_patients():
     from app.ehr.adapters.athenahealth import AthenaHealthAdapter
     adapter = AthenaHealthAdapter()
     adapter.access_token = "tok_test"
-    adapter.token_expires_at = datetime(2099, 1, 1)
+    adapter.token_expires_at = datetime(2099, 1, 1, tzinfo=timezone.utc)
 
     api_response = httpx.Response(
         200,

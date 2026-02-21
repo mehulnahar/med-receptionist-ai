@@ -168,7 +168,7 @@ async def _check_payer(
 
     first_status = plan_statuses[0]
     status_text = (first_status.get("status") or "").lower()
-    if "active" not in status_text:
+    if not status_text.startswith("active"):
         return None
 
     # Extract member ID and plan info
