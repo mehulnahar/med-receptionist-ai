@@ -652,7 +652,8 @@ function SessionDetailView({ sessionId, onBack, showToast }) {
   )
   const canStartAnalysis = transcribedRecordings.length > 0 &&
     session?.status !== 'processing' &&
-    session?.status !== 'analyzing'
+    session?.status !== 'analyzing' &&
+    session?.status !== 'completed'
   const canGeneratePrompt = session?.status === 'completed' || completedRecordings.length > 0
   const insights = session?.aggregated_insights
 
