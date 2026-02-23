@@ -1,0 +1,46 @@
+Category: Referrals and Specialist Appointments
+
+Agent 1: Thank you for calling HealthHarbor, my name is Agent 1. How can I assist you today?
+
+Customer: Hi, Agent 1. I'm calling because I need some referrals and specialist appointments. Is this the right department?
+
+Agent 1: Yes, you've reached the right department. I'll be more than happy to assist you with that. May I have your name, please?
+
+Customer: My name is Sarah Johnson.
+
+Agent 1: Thank you, Sarah. Before we proceed, may I ask what type of specialist you are looking to see?
+
+Customer: I believe I need to see an orthopedic specialist. I've been experiencing some knee pain recently, and I want to get it checked out.
+
+Agent 1: I'm sorry to hear about your knee pain, Sarah. I'll do my best to help you find an orthopedic specialist. Can you please provide me with your insurance information?
+
+Customer: Sure, I have BlueCross BlueShield.
+
+Agent 1: Great. Now, let me check our network of providers to see who's available in your area. May I have your zip code, please?
+
+Customer: My zip code is 12345.
+
+Agent 1: Thank you. Give me just a moment, please. Alright, Sarah, I have found a few orthopedic specialists near your area. I can provide you with their contact information so you can schedule an appointment directly with them. Would that work for you?
+
+Customer: Yes, that would be perfect. Thank you.
+
+Agent 1: You're welcome, Sarah. Here are the names and contact information for the orthopedic specialists in your area:
+
+- Dr. John Smith
+   Phone: (555) 123-4567
+
+- Dr. Emily Davis
+   Phone: (555) 987-6543
+
+- Dr. Michael Johnson
+   Phone: (555) 789-0123
+
+Please note that availability may vary, so it's best to call them as soon as possible to schedule your appointment. Is there anything else I can assist you with, Sarah?
+
+Customer: No, that's all I needed. Thank you for your help, Agent 1.
+
+Agent 1: You're welcome, Sarah. I hope you find the right specialist and get the help you need. If you have any further questions or need assistance in the future, don't hesitate to reach out to us. Have a great day!
+
+Customer: Thank you, Agent 1. Have a great day too. Goodbye!
+
+Agent 1: Goodbye, Sarah. Take care!

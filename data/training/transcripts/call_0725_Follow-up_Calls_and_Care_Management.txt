@@ -1,0 +1,27 @@
+Category: Follow-up Calls and Care Management
+
+Agent 2: Thank you for calling HealthHarbor. My name is Agent 2. How can I assist you today?
+
+Customer: Hi Agent 2, my name is Emily Johnson. I recently had a medical procedure at HealthHarbor, and I have a few questions regarding my follow-up care.
+
+Agent 2: Hello, Emily. I'm glad you reached out to us. I'll do my best to assist you. Could you please provide me with your date of birth and the procedure you had?
+
+Customer: Sure, my date of birth is January 15, 1985, and I had a knee surgery on March 1st.
+
+Agent 2: Thank you, Emily. Let me pull up your records. I see here that your surgery was successful. How have you been feeling since the procedure?
+
+Customer: Overall, I've been feeling okay. However, I've been experiencing some discomfort and swelling in my knee. I wanted to know if this is normal during the recovery process.
+
+Agent 2: It's not uncommon to experience discomfort and swelling after knee surgery, Emily. It could be a part of the healing process. However, I'll check with your surgeon to ensure everything is on track. Can you please provide me with your phone number so that I can get back to you with an update?
+
+Customer: Of course, my phone number is 555-1234.
+
+Agent 2: Thank you, Emily. I'll contact your surgeon and get back to you within the next 24 hours. In the meantime, I recommend following your post-operative care instructions, including keeping your leg elevated and applying ice packs to reduce swelling. Is there anything else I can assist you with?
+
+Customer: No, that's all for now. Thank you for your help, Agent 2.
+
+Agent 2: You're welcome, Emily. I'll be in touch soon. Take care and have a great day!
+
+Customer: Thank you, Agent 2. Goodbye.
+
+Agent 2: Goodbye, Emily.

@@ -1,0 +1,35 @@
+Category: Referrals and Specialist Appointments
+
+Agent 3: Thank you for calling HealthHarbor, my name is Agent 3. How can I assist you today?
+
+Customer: Hi, Agent 3. I'm calling because I've been experiencing some health issues and I think I may need a specialist appointment. Can you help me with that?
+
+Agent 3: Of course, I'd be happy to assist you. I'm sorry to hear that you're not feeling well. Could you please provide me with your name and some basic information so I can access your records?
+
+Customer: My name is John Smith. I have been a patient at HealthHarbor for a few years now.
+
+Agent 3: Thank you, John. I have your records here. I see that you have been referred to a specialist in the past. Could you let me know which specialist you would like to see this time?
+
+Customer: I'm not sure which specialist I need to see. I've been having some digestion issues, so I think I may need to see a gastroenterologist.
+
+Agent 3: I understand. Digestion issues are often best addressed by a gastroenterologist. Let me check the availability of gastroenterologists in your area. Can you please provide me with your ZIP code?
+
+Customer: My ZIP code is 12345.
+
+Agent 3: Thank you, John. I have found a few gastroenterologists near your location. Let me check their availability for you. 
+
+(Customer is put on hold for a moment)
+
+Agent 3: Thank you for waiting, John. I have found two gastroenterologists who are available to see you within the next two weeks. Dr. Johnson has availability on Monday at 10:00 AM, and Dr. Anderson has availability on Wednesday at 2:00 PM. Which one would you prefer?
+
+Customer: I would prefer the appointment with Dr. Johnson on Monday at 10:00 AM.
+
+Agent 3: Great! I have scheduled an appointment with Dr. Johnson for you on Monday at 10:00 AM. You will receive a confirmation email with all the details shortly. Is there anything else I can assist you with?
+
+Customer: No, that's all for now. Thank you for your help, Agent 3.
+
+Agent 3: You're welcome, John. I'm glad I could assist you. If you have any other questions or concerns, please don't hesitate to call us again. Take care and have a great day!
+
+Customer: Thank you, Agent 3. Goodbye.
+
+Agent 3: Goodbye, John. Take care.

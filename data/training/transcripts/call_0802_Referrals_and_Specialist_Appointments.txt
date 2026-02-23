@@ -1,0 +1,31 @@
+Category: Referrals and Specialist Appointments
+
+Agent 4: Thank you for calling HealthHarbor, my name is Agent 4. How can I assist you today?
+
+Customer: Hi, Agent 4. My name is Sarah Johnson. I'm calling because I need some referrals and assistance with scheduling specialist appointments.
+
+Agent 4: Hello, Sarah. I'm sorry to hear that you're in need of referrals and specialist appointments. I'll do my best to assist you. Can you please provide me with your HealthHarbor member ID?
+
+Customer: Sure, it's 123456789.
+
+Agent 4: Thank you, Sarah. Let me pull up your information. I see that you're currently eligible for specialist appointments. Could you please let me know which type of specialist you're looking for?
+
+Customer: I need to see a dermatologist for a skin condition I've been dealing with. Can you recommend any specialists within my network?
+
+Agent 4: Absolutely, Sarah. I can assist you with that. Let me check our network for dermatologists in your area. Can you please provide me with your zip code?
+
+Customer: My zip code is 12345.
+
+Agent 4: Thank you, Sarah. Give me a moment to search for dermatologists in your area. Alright, I have found a few options for you. There's Dr. Emily Roberts at Harbor Dermatology, Dr. James Anderson at Coastal Skin Care, and Dr. Rebecca Miller at Skin Health Associates. Would you like me to provide you with contact information for any of these specialists?
+
+Customer: Yes, please. Can you give me the contact information for Dr. Emily Roberts at Harbor Dermatology?
+
+Agent 4: Certainly, Sarah. Dr. Emily Roberts can be reached at Harbor Dermatology by calling (555) 123-4567. They are located at 123 Main Street in your city. I suggest calling them to schedule an appointment directly. Is there anything else I can assist you with?
+
+Customer: That's all for now, Agent 4. Thank you for your help.
+
+Agent 4: You're welcome, Sarah. I'm glad I could assist you. If you have any other questions or need further assistance in the future, please don't hesitate to reach out. Have a great day!
+
+Customer: Thank you, Agent 4. You too. Goodbye.
+
+Agent 4: Goodbye, Sarah. Take care.

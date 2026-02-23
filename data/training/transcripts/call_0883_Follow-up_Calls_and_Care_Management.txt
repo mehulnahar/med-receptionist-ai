@@ -1,0 +1,31 @@
+Category: Follow-up Calls and Care Management
+
+Agent 3: Thank you for calling HealthHarbor, my name is Agent 3. How can I assist you today?
+
+Customer: Hi, Agent 3. My name is Sarah Thompson. I recently had a procedure done at HealthHarbor, and I have some concerns about my recovery.
+
+Agent 3: Hello, Sarah. I'm sorry to hear that you're feeling worried. I'll do my best to address your concerns. Could you please provide me with your date of birth and the procedure you had?
+
+Customer: Sure, my date of birth is September 15, 1985. I had a knee surgery on May 1st.
+
+Agent 3: Thank you for the information, Sarah. Let me pull up your file. I see that you had a knee arthroscopy procedure done. How has your recovery been so far?
+
+Customer: Well, I'm experiencing more pain than I anticipated, and my knee feels quite stiff. I'm also concerned about the swelling that hasn't fully subsided yet.
+
+Agent 3: I understand your concerns, Sarah. It's normal to experience some pain and stiffness after a knee arthroscopy. However, if the pain is severe or if you notice any unusual symptoms, it's important to let your doctor know. Have you been following the post-operative care instructions provided to you?
+
+Customer: Yes, I have been following the instructions as closely as possible. I've been taking my prescribed pain medication and doing the recommended exercises. But it still worries me that the pain is persisting.
+
+Agent 3: I can understand why you're worried, Sarah. Sometimes, it can take a bit longer for the pain and swelling to fully subside. However, it's always best to consult with your surgeon to rule out any potential complications. Would you like me to schedule a follow-up appointment for you?
+
+Customer: Yes, that would be great. I want to make sure everything is healing properly. Can you also provide me with some tips on managing the pain and swelling in the meantime?
+
+Agent 3: Of course, Sarah. In the meantime, you can try applying ice packs to your knee for 15-20 minutes several times a day to help reduce swelling. Additionally, keeping your leg elevated whenever possible can also help with swelling. As for pain management, make sure you're taking your prescribed pain medication as directed and avoid any activities that may aggravate your knee. I'll go ahead and schedule a follow-up appointment for you. Is there anything else I can assist you with?
+
+Customer: Thank you for the advice and for scheduling the appointment, Agent 3. That's all for now. I appreciate your help.
+
+Agent 3: You're welcome, Sarah. I'm glad I could assist you. If you have any further questions or concerns, don't hesitate to reach out. Take care and have a speedy recovery!
+
+Customer: Thank you, Agent 3. Goodbye.
+
+Agent 3: Goodbye, Sarah. Have a great day!

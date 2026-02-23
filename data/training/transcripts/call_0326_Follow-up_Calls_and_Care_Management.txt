@@ -1,0 +1,41 @@
+Category: Follow-up Calls and Care Management
+
+[Phone ringing]
+
+Agent 3: Thank you for calling HealthHarbor, my name is Agent 3. How may I assist you today?
+
+Customer: Hi, I'm John Smith. I recently had a procedure done at your hospital and I have some questions regarding my follow-up care.
+
+Agent 3: Hi John, I'm here to help you. Could you please provide me with your patient ID or date of birth so that I can access your medical records?
+
+Customer: Sure, my date of birth is January 15, 1980.
+
+Agent 3: Thank you, John. I have pulled up your records. How can I assist you with your follow-up care?
+
+Customer: Well, I had a knee surgery last week, and I'm not sure what steps I need to take for my recovery. Can you provide me with some guidance on what exercises I should be doing?
+
+Agent 3: I understand your concern, John. After a knee surgery, it is important to follow the instructions given by your surgeon. Have you been attending any physical therapy sessions?
+
+Customer: Yes, I have been attending physical therapy twice a week. But I'm not sure if I'm doing the right exercises at home to complement my therapy.
+
+Agent 3: That's great to hear, John. Your physical therapist will be the best person to guide you on specific exercises for your recovery. However, I can provide you with some general exercises that can help strengthen your knee muscles. Would you like me to do that?
+
+Customer: Yes, please. That would be helpful.
+
+Agent 3: Alright. First, you can start with straight leg raises. Lie down on your back, keep one leg straight, and lift it up off the ground. Hold for a few seconds and then slowly lower it back down. Repeat this exercise ten times for each leg. Another exercise is the seated knee extension. Sit on a chair, straighten one leg in front of you, and hold for a few seconds. Then slowly lower it back down. Repeat this exercise ten times for each leg as well.
+
+Customer: Okay, I'll make a note of those exercises. Anything else I should be doing?
+
+Agent 3: Yes, John. You can also try heel slides. Lie down on your back, bend your knee, and slide your heel towards your buttocks. Then slowly straighten your leg back out. Repeat this exercise ten times for each leg. Additionally, you can do mini squats by standing with your feet hip-width apart, slowly bend your knees and lower your body a few inches, and then stand back up. Repeat this exercise ten times as well.
+
+Customer: Thank you so much for the guidance, Agent 3. I will incorporate these exercises into my routine. Is there anything else I need to know about my follow-up care?
+
+Agent 3: You're welcome, John. Besides the exercises, it's important to follow your medication schedule as prescribed by your doctor. Also, make sure to attend all your follow-up appointments with your surgeon and physical therapist. They will monitor your progress and make any necessary adjustments to your treatment plan.
+
+Customer: I will definitely keep that in mind. Thank you for your assistance, Agent 3.
+
+Agent 3: You're welcome, John. If you have any more questions or concerns, feel free to reach out to us anytime. Take care and have a speedy recovery!
+
+Customer: Thank you, Agent 3. Goodbye.
+
+Agent 3: Goodbye, John. Have a great day!

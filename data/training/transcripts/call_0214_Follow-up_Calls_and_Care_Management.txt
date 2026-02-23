@@ -1,0 +1,41 @@
+Category: Follow-up Calls and Care Management
+
+[Phone rings]
+
+Agent 1: Thank you for calling HealthHarbor, my name is Agent 1. How can I assist you today?
+
+Customer: Hi, Agent 1. My name is Sarah Johnson. I'm calling for a follow-up on my recent visit to HealthHarbor.
+
+Agent 1: Hi, Sarah. I hope you're doing well. How can I assist you with your follow-up today?
+
+Customer: Overall, my experience at HealthHarbor was good, but I have a few concerns I'd like to discuss.
+
+Agent 1: I'm sorry to hear that you have some concerns, Sarah. Can you please let me know what specifically you'd like to discuss?
+
+Customer: Well, during my visit, I was told that I would receive a call from a specialist regarding my test results, but I haven't received any update yet.
+
+Agent 1: I apologize for the inconvenience, Sarah. Let me check your records and see what I can find. May I have your date of visit and the name of the specialist you were supposed to hear from?
+
+Customer: Sure, my visit was on October 15th, and the specialist was Dr. Anderson.
+
+Agent 1: Thank you for providing the details, Sarah. Let me look into this for you. While I'm checking, may I know if you have any other concerns or questions?
+
+Customer: No, that was my main concern. I just want to make sure I get my test results and any necessary follow-up care.
+
+Agent 1: I completely understand, Sarah. It's important to have all the relevant information. I appreciate your patience. I have reviewed your records, and I see that the test results were indeed ready. However, there seems to have been a delay in notifying you. I sincerely apologize for this oversight.
+
+Customer: That's alright, as long as I can get the results now. Can you please provide me with the information?
+
+Agent 1: Absolutely, Sarah. I will make sure you receive your test results today. Can I confirm your contact number as 555-1234?
+
+Customer: Yes, that's correct.
+
+Agent 1: Perfect. I will notify Dr. Anderson's office to call you with the results today. Is there anything else I can assist you with?
+
+Customer: That's all for now, thank you for your help, Agent 1.
+
+Agent 1: You're welcome, Sarah. I apologize again for the inconvenience, and I appreciate your understanding. If you have any further questions or concerns, don't hesitate to reach out to us. Have a great day!
+
+Customer: Thank you, Agent 1. You too. Goodbye.
+
+Agent 1: Goodbye, Sarah. Take care.

@@ -1,0 +1,35 @@
+Category: Referrals and Specialist Appointments
+
+Agent 4: Thank you for calling HealthHarbor, my name is Agent 4. How can I assist you today?
+
+Customer: Hi, Agent 4. My name is John Smith. I'm calling because I need some information about referrals and specialist appointments.
+
+Agent 4: Hello, Mr. Smith. I'd be happy to help you with that. Could you please provide me with your HealthHarbor ID or your date of birth for verification purposes?
+
+Customer: Sure, my date of birth is May 10, 1985.
+
+Agent 4: Thank you, Mr. Smith. How can I assist you with referrals and specialist appointments?
+
+Customer: I've been experiencing some back pain recently, and my primary care doctor recommended that I see a specialist. I would like to know how I can get a referral and schedule an appointment.
+
+Agent 4: I'm sorry to hear about your back pain, Mr. Smith. We can definitely help you with that. First, let me check your records to see if you already have a referral on file. Can you please hold on for a moment while I access your information?
+
+Customer: Of course, take your time.
+
+Agent 4: Thank you for your patience, Mr. Smith. I see that you don't currently have a referral on file for a specialist. In order to proceed, I will need some additional information from you. Can you please provide me with the name of your primary care doctor?
+
+Customer: My primary care doctor's name is Dr. Emily Johnson.
+
+Agent 4: Thank you, Mr. Smith. I will contact Dr. Johnson's office to request a referral for you. Once the referral is received, we will reach out to you to schedule an appointment with the specialist. Is there a specific specialist you would like to see or any preferences regarding the location or timing of the appointment?
+
+Customer: No, I don't have any specific preferences at the moment. I trust my doctor's recommendation, so any specialist she suggests would be fine.
+
+Agent 4: Understood, Mr. Smith. We will work with Dr. Johnson to find a suitable specialist for your condition. Once the referral is processed and we have an appointment available, we will contact you with the details. Is there anything else I can assist you with today?
+
+Customer: No, that's all for now. Thank you for your help, Agent 4.
+
+Agent 4: You're welcome, Mr. Smith. If you have any further questions or need any additional assistance, please don't hesitate to reach out to us. Have a great day!
+
+Customer: Thank you, Agent 4. You too. Goodbye.
+
+Agent 4: Goodbye, Mr. Smith. Take care.

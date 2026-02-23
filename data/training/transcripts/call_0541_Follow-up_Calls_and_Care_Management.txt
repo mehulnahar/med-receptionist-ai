@@ -1,0 +1,25 @@
+Category: Follow-up Calls and Care Management
+
+Agent 2: Thank you for calling HealthHarbor, my name is Agent 2. How can I assist you today?
+
+Customer: Hi, Agent 2. I'm really scared and I need some help. I recently had a surgery at your hospital and I'm experiencing some complications.
+
+Agent 2: I'm sorry to hear that you're feeling scared. I'm here to help you. Can you please provide me with your name and date of birth so I can access your medical records?
+
+Customer: Yes, my name is Emily Johnson and my date of birth is January 10, 1985.
+
+Agent 2: Thank you, Emily. I see your records here. I understand you had surgery recently. Can you please let me know what complications you're experiencing so I can assist you better?
+
+Customer: After the surgery, I've been experiencing severe pain and swelling in the operated area. It's becoming unbearable and I'm really worried that something might be wrong.
+
+Agent 2: I understand how concerning that must be for you, Emily. I'm going to connect you with our care management team who will be able to provide you with the necessary support. Please hold the line for a moment.
+
+(Customer is put on hold for a minute)
+
+Agent 2: Emily, I have connected you with our care management team. They will be able to assist you further. Is there anything else I can help you with?
+
+Customer: No, that's all. Thank you for your assistance, Agent 2.
+
+Agent 2: You're welcome, Emily. I hope everything goes well for you. If you have any further concerns or questions, don't hesitate to reach out to us. Take care and have a good day.
+
+(Customer hangs up)

@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.user import User
 from app.models.training import TrainingSession, TrainingRecording
-from app.middleware.auth import require_practice_admin
+from app.middleware.auth import require_practice_admin, require_any_staff
 from app.schemas.training import (
     TrainingSessionCreate,
     TrainingSessionResponse,
@@ -83,7 +83,7 @@ def _check_file_allowed(filename: str, content_type: str | None, size: int | Non
 @router.post("/sessions", response_model=TrainingSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
     body: TrainingSessionCreate,
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new training session."""
@@ -107,7 +107,7 @@ async def create_session(
 
 @router.get("/sessions", response_model=TrainingSessionListResponse)
 async def list_sessions(
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """List all training sessions for the practice."""
@@ -129,7 +129,7 @@ async def list_sessions(
 @router.get("/sessions/{session_id}", response_model=TrainingSessionDetail)
 async def get_session(
     session_id: UUID,
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a training session with all recordings."""
@@ -165,7 +165,7 @@ async def get_session(
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
     session_id: UUID,
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a training session (only if not currently processing)."""
@@ -193,6 +193,86 @@ async def delete_session(
 
 
 # ---------------------------------------------------------------------------
+# Bulk Import Text Transcripts (for HuggingFace / pre-transcribed data)
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _BaseModel
+from typing import List as _List
+
+
+class _TranscriptItem(_BaseModel):
+    filename: str
+    transcript: str
+    language: str = "en"
+    category: str = "Unknown"
+
+
+class _BulkImportRequest(_BaseModel):
+    transcripts: _List[_TranscriptItem]
+
+
+@router.post("/sessions/{session_id}/import-transcripts")
+async def import_transcripts(
+    session_id: UUID,
+    body: _BulkImportRequest,
+    current_user: User = Depends(require_any_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Bulk-import pre-transcribed text transcripts into a training session.
+    Skips Whisper — recordings are created with status='transcribed' directly.
+    """
+    practice_id = _ensure_practice(current_user)
+
+    # Verify session
+    result = await db.execute(
+        select(TrainingSession).where(
+            TrainingSession.id == session_id,
+            TrainingSession.practice_id == practice_id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Training session not found")
+
+    if session.status == "processing":
+        raise HTTPException(status_code=409, detail="Cannot import to a session that is currently processing")
+
+    imported = 0
+    for item in body.transcripts:
+        if not item.transcript or len(item.transcript) < 50:
+            continue
+
+        recording = TrainingRecording(
+            practice_id=practice_id,
+            session_id=session_id,
+            original_filename=item.filename,
+            file_size_bytes=len(item.transcript.encode("utf-8")),
+            mime_type="text/plain",
+            status="transcribed",  # Skip Whisper — already have text
+            transcript=item.transcript,
+            language_detected=item.language,
+            duration_seconds=None,
+            uploaded_by=current_user.id,
+        )
+        db.add(recording)
+        imported += 1
+
+    # Update session counts
+    session.total_recordings = (session.total_recordings or 0) + imported
+    if session.status == "completed":
+        session.status = "pending"
+    await db.commit()
+
+    logger.info(
+        "Bulk imported %d transcripts into session %s (practice=%s)",
+        imported, session_id, practice_id,
+    )
+
+    return {"imported": imported, "session_id": str(session_id)}
+
+
+# ---------------------------------------------------------------------------
 # Upload Recordings
 # ---------------------------------------------------------------------------
 
@@ -201,7 +281,7 @@ async def upload_recordings(
     session_id: UUID,
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(..., description="Audio files (.mp3, .wav, .m4a, .ogg, .webm, .flac)"),
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -322,7 +402,7 @@ async def _transcribe_background(recording_id: UUID, file_bytes: bytes, filename
 async def start_processing(
     session_id: UUID,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Start analyzing all transcribed recordings in the session."""
@@ -392,7 +472,7 @@ async def _process_session_background(session_id: UUID):
 @router.get("/sessions/{session_id}/recordings", response_model=TrainingRecordingListResponse)
 async def list_recordings(
     session_id: UUID,
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """List all recordings in a session with their status."""
@@ -428,7 +508,7 @@ async def list_recordings(
 @router.get("/sessions/{session_id}/insights", response_model=TrainingInsightsResponse)
 async def get_insights(
     session_id: UUID,
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Get aggregated insights from the training session."""
@@ -456,7 +536,7 @@ async def get_insights(
 @router.post("/sessions/{session_id}/generate-prompt", response_model=GeneratedPromptResponse)
 async def generate_prompt(
     session_id: UUID,
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate an optimized system prompt based on session insights."""
@@ -492,7 +572,7 @@ async def generate_prompt(
 async def apply_prompt(
     session_id: UUID,
     body: ApplyPromptRequest = ApplyPromptRequest(),
-    current_user: User = Depends(require_practice_admin),
+    current_user: User = Depends(require_any_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Apply the generated (or manually edited) prompt to the practice and optionally push to Vapi."""

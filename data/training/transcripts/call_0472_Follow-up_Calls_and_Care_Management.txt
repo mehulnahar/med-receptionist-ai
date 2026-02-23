@@ -1,0 +1,51 @@
+Category: Follow-up Calls and Care Management
+
+[Transcript]
+
+Agent 2: Thank you for calling HealthHarbor, my name is Agent 2. How can I assist you today?
+
+Customer: Hi, Agent 2. I'm calling for a follow-up on my recent hospital visit. I would like to discuss my care management.
+
+Agent 2: Of course, I'll be happy to help you with that. Before we proceed, may I have your name, please?
+
+Customer: My name is Emily White.
+
+Agent 2: Thank you, Emily. How can I assist you with your care management?
+
+Customer: I was discharged from the hospital a few days ago, and I have some questions regarding my post-discharge care. I'm not sure about the medication dosage and schedule. Can you please provide me with the necessary information?
+
+Agent 2: I'm sorry to hear about your confusion, Emily. I'll do my best to assist you. Let me pull up your records. Can you please provide me with your date of birth?
+
+Customer: My date of birth is May 8th, 1985.
+
+Agent 2: Thank you for confirming, Emily. I see here that you were prescribed medication for pain management. Let me check the details for you. Could you please hold for a moment?
+
+Customer: Sure, take your time.
+
+[After a brief hold]
+
+Agent 2: Thank you for waiting, Emily. I have the information you need. Your prescribed medication is Oxycodone. The dosage is 5mg, to be taken every 4-6 hours as needed for pain. Please remember to follow the instructions on the label and consult your doctor if you have any concerns.
+
+Customer: Thank you, Agent 2. That answers my question regarding the medication. I appreciate your help.
+
+Agent 2: You're welcome, Emily. I'm glad I could assist you. Is there anything else I can assist you with today?
+
+Customer: Yes, I also have a question about my follow-up appointments. I was given some instructions, but I'm not sure when and where I need to go. Can you provide me with that information?
+
+Agent 2: Certainly, Emily. Let me check your records. Can you please provide me with the date of your hospital visit?
+
+Customer: I was admitted on January 15th.
+
+Agent 2: Thank you for that information, Emily. According to our records, your first follow-up appointment is scheduled for January 30th at 9:00 AM. You will need to visit our HealthHarbor clinic located at 123 Main Street. Please ensure to bring all your medical records and any prescribed medications with you.
+
+Customer: Got it. January 30th at 9:00 AM at the HealthHarbor clinic. I will make sure to bring all the necessary documents. Thank you for providing me with the details.
+
+Agent 2: You're welcome, Emily. I'm glad I could assist you. Is there anything else I can help you with today?
+
+Customer: No, that covers all my questions for now. Thank you, Agent 2, for your assistance. I appreciate your help and clarity.
+
+Agent 2: It was my pleasure assisting you, Emily. If you have any further questions or concerns, please don't hesitate to reach out. Take care and have a great day!
+
+Customer: Thank you, Agent 2. You too. Goodbye.
+
+Agent 2: Goodbye, Emily. Have a wonderful day ahead!

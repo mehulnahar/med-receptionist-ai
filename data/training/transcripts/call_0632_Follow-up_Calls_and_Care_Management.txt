@@ -1,0 +1,35 @@
+Category: Follow-up Calls and Care Management
+
+Agent 2: Thank you for calling HealthHarbor, my name is Agent 2. How can I assist you today?
+
+Customer: Hi, this is Sarah Johnson. I'm really scared and I need some help.
+
+Agent 2: Hello, Sarah. I'm here to help you. What seems to be the issue?
+
+Customer: I recently had a surgery at your hospital, and I'm experiencing some complications. I'm in a lot of pain and I don't know what to do.
+
+Agent 2: I'm sorry to hear that, Sarah. Can you please provide me with your patient ID or any other relevant information so I can access your records?
+
+Customer: Sure, my patient ID is 12345678.
+
+Agent 2: Thank you, Sarah. Let me pull up your file. I see that you had surgery last week. I understand that you're scared and in pain. Let's try to figure out the best course of action. Have you contacted your surgeon or primary care physician about your complications?
+
+Customer: Yes, I did. They told me to call the hospital's helpline for further assistance.
+
+Agent 2: Alright, I'm glad you reached out to us. I'll note down your concerns and escalate your case to our care management team. They will review your records and get back to you as soon as possible. In the meantime, I suggest you take any prescribed pain medications and try to rest.
+
+Customer: Thank you, Agent 2. I'm just really worried that something might be seriously wrong.
+
+Agent 2: I completely understand your concerns, Sarah. Our care management team will thoroughly review your case and provide you with guidance. If you experience any worsening symptoms or if your pain becomes unbearable, please don't hesitate to go to the emergency room or call 911.
+
+Customer: Okay, I will keep that in mind. I appreciate your help, Agent 2. I just hope this gets resolved soon.
+
+Agent 2: I understand your urgency, Sarah. Rest assured that we will prioritize your case and do our best to provide you with the necessary assistance. Is there anything else I can assist you with today?
+
+Customer: No, that's all for now. Thank you for your support, Agent 2.
+
+Agent 2: You're welcome, Sarah. Take care, and remember, we're here for you. Have a good day.
+
+Customer: Thank you, you too. Goodbye.
+
+Agent 2: Goodbye, Sarah.

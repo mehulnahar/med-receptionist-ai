@@ -1,0 +1,43 @@
+Category: Referrals and Specialist Appointments
+
+Agent 3: Thank you for calling HealthHarbor. My name is Agent 3. How can I assist you today?
+
+Customer: Finally, someone picks up! I've been on hold for ages. I need to schedule a specialist appointment, and I'm not happy about it.
+
+Agent 3: I apologize for the wait. I understand you're frustrated, and I'll do my best to assist you. May I have your name, please?
+
+Customer: My name is Kelly Smith.
+
+Agent 3: Thank you, Kelly. Could you please provide me with your health insurance information?
+
+Customer: Ugh, fine. It's ABC Insurance, policy number 123456.
+
+Agent 3: Thank you for providing that information. Now, which specialist are you looking to see?
+
+Customer: I need to see a gastroenterologist. I've been having some digestive issues lately, and my primary care doctor recommended it.
+
+Agent 3: I'm sorry to hear that you're experiencing health problems. We have several gastroenterologists available at HealthHarbor. Can you please let me know your preferred location?
+
+Customer: I'd prefer the HealthHarbor location near my home, in downtown.
+
+Agent 3: Noted. Let me check the availability of gastroenterologists at that location. Please bear with me for a moment.
+
+(Customer waits for a few minutes)
+
+Agent 3: Thank you for your patience, Kelly. I have a few options for you. Dr. Johnson has an available appointment next week on Tuesday at 10:00 AM. We also have Dr. Rodriguez with an opening on Thursday at 2:00 PM. Which one would you prefer?
+
+Customer: I can't believe there's such a long wait! This is ridiculous. I guess I'll take the appointment with Dr. Johnson on Tuesday.
+
+Agent 3: I apologize for the inconvenience, Kelly. I understand your frustration. Please note that our specialists are in high demand, but we'll do our best to accommodate your needs. Great! I'll schedule you with Dr. Johnson on Tuesday at 10:00 AM. Is there anything else I can assist you with?
+
+Customer: No, that's all. Just make sure you don't cancel or reschedule this appointment without notifying me. I've had that happen before, and it's unacceptable.
+
+Agent 3: I completely understand your concern, Kelly. Rest assured, we'll make sure to keep you informed of any changes to your appointment. Is there anything else I can help you with today?
+
+Customer: No, that's it. Just get this appointment right, please.
+
+Agent 3: Absolutely, Kelly. Your appointment is confirmed, and we will send you a confirmation email shortly. Thank you for choosing HealthHarbor, and I hope your visit with Dr. Johnson goes smoothly. Have a great day!
+
+Customer: Thanks, I guess. Goodbye.
+
+Agent 3: Goodbye, Kelly. Take care.

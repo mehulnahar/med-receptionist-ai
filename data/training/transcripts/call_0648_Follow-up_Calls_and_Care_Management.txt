@@ -1,0 +1,33 @@
+Category: Follow-up Calls and Care Management
+
+[Phone ringing]
+
+Agent 4: Thank you for calling HealthHarbor. My name is Agent 4. How can I assist you today?
+
+Customer: Hi, this is John Smith. I recently had a procedure done at your hospital, and I have a few concerns.
+
+Agent 4: Hi John, I'm sorry to hear that you're feeling concerned. Can you please let me know what specific issues you're experiencing?
+
+Customer: Well, I had the procedure last week, and I'm still experiencing a lot of pain. I don't know if this is normal or if something went wrong.
+
+Agent 4: I understand your worries, John. Let me check your medical records to get a better understanding of the procedure you had. Thank you for your patience.
+
+[Pause]
+
+Agent 4: John, I see here that you had a minor surgery. It's normal to experience some pain during the recovery period. However, if the pain is severe or worsening, it's important to address it. Have you been following the post-operative care instructions?
+
+Customer: Yes, I have been following the instructions, but the pain is just not getting any better. It's making me worried that there might be complications.
+
+Agent 4: I completely understand your concerns, John. In situations like these, it's always best to get a professional opinion. I will schedule an appointment for you with your surgeon to evaluate your condition. Would you prefer a morning or afternoon appointment?
+
+Customer: Thank you, Agent 4. I appreciate your help. I would prefer an afternoon appointment, please.
+
+Agent 4: Noted, John. I have scheduled your appointment for tomorrow afternoon at 2:00 PM. You will receive a confirmation email with all the necessary details. Is there anything else I can assist you with?
+
+Customer: No, that should be all for now. Thank you for your assistance, Agent 4.
+
+Agent 4: You're welcome, John. I'm glad I could help. If you have any other concerns or questions before your appointment, please don't hesitate to call us. Take care, and I hope you feel better soon.
+
+Customer: Thank you, Agent 4. Goodbye.
+
+Agent 4: Goodbye, John. Have a great day.

@@ -1,0 +1,35 @@
+Category: Referrals and Specialist Appointments
+
+Agent 4: Thank you for calling HealthHarbor, my name is Agent 4. How can I assist you today?
+
+Customer: Hi, Agent 4. I'm calling because I need some referrals and assistance with specialist appointments.
+
+Agent 4: Of course, I'd be happy to help you with that. Can you please provide me with your name and date of birth for verification purposes?
+
+Customer: My name is Sarah Johnson, and my date of birth is January 15, 1985.
+
+Agent 4: Thank you, Sarah. How can I assist you with referrals? Are you looking for a specific type of specialist?
+
+Customer: Yes, I'm experiencing some digestive issues, so I would like a referral to a gastroenterologist.
+
+Agent 4: I'm sorry to hear that you're not feeling well. Let me check our network of specialists and find a gastroenterologist near you. Can you please provide me with your ZIP code?
+
+Customer: Sure, my ZIP code is 12345.
+
+Agent 4: Thank you, Sarah. I'm searching for gastroenterologists in your area now. While I'm doing that, are there any other specialists you need referrals for?
+
+Customer: No, just the gastroenterologist for now.
+
+Agent 4: Alright, I found a few gastroenterologists near you. We have Dr. Smith, Dr. Davis, and Dr. Wilson. Which one would you prefer?
+
+Customer: I've heard good things about Dr. Wilson, so I would like a referral to him, please.
+
+Agent 4: Noted, Sarah. I will request a referral to Dr. Wilson. Please note that it may take a few business days for the referral to be processed. Is there anything else I can assist you with today?
+
+Customer: No, that's all. Thank you for your help, Agent 4.
+
+Agent 4: You're welcome, Sarah. If you have any further questions or need any additional assistance, don't hesitate to give us a call. Take care and have a great day!
+
+Customer: Thank you, Agent 4. Goodbye.
+
+Agent 4: Goodbye, Sarah.

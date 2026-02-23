@@ -1,0 +1,39 @@
+Category: Referrals and Specialist Appointments
+
+Agent 3: Thank you for calling HealthHarbor, my name is Agent 3. How may I assist you today?
+
+Customer: Hi, Agent 3. I'm calling because I need some referrals and assistance with scheduling specialist appointments.
+
+Agent 3: Of course, I'll be happy to help you with that. May I have your name, please?
+
+Customer: My name is Sarah Smith.
+
+Agent 3: Thank you, Sarah. How can I assist you with referrals today?
+
+Customer: I've been experiencing some back pain lately, and I think I might need to see a specialist. Can you help me find one?
+
+Agent 3: Of course, Sarah. I'm sorry to hear about your back pain. Let me pull up our database to find a suitable specialist for you. Can you please provide me with your insurance information?
+
+Customer: Sure, my insurance provider is BlueCross BlueShield, and my member ID is 12345678.
+
+Agent 3: Thank you for providing that information, Sarah. Let me check for specialists in your area who accept your insurance. Could you please tell me your location?
+
+Customer: I live in Boston, Massachusetts.
+
+Agent 3: Great, let me search for specialists in your area. I found a few options for you. Dr. John Anderson specializes in orthopedics and has availability next week. Dr. Emily Roberts is a neurologist and has availability in two weeks. Which one would you prefer to see?
+
+Customer: I think I'll go with Dr. John Anderson, the orthopedic specialist. Can you please schedule an appointment for me?
+
+Agent 3: Absolutely, Sarah. I will contact Dr. Anderson's office and check for available dates. Can I call you back within the next hour to confirm the appointment?
+
+Customer: Yes, that works for me. Thank you for your help.
+
+Agent 3: You're welcome, Sarah. I will contact you shortly to finalize the appointment with Dr. Anderson. Is there anything else I can assist you with?
+
+Customer: No, that's all for now. Thank you again for your assistance.
+
+Agent 3: It was my pleasure, Sarah. If you have any further questions or need any additional help, please don't hesitate to call us. Have a great day!
+
+Customer: You too. Goodbye!
+
+Agent 3: Goodbye, Sarah. Take care!
