@@ -768,6 +768,66 @@ function SessionDetailView({ sessionId, onBack, showToast }) {
         </div>
       </div>
 
+      {/* Generated Prompt panel */}
+      {(session?.generated_prompt || editedPrompt) && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-5">Generated Prompt</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Current prompt */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Current Prompt
+              </label>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-80 overflow-y-auto">
+                <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
+                  {session?.current_prompt || 'No current prompt configured.'}
+                </pre>
+              </div>
+            </div>
+
+            {/* Editable generated prompt */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Generated Prompt (editable)
+              </label>
+              <textarea
+                value={editedPrompt}
+                onChange={(e) => setEditedPrompt(e.target.value)}
+                rows={12}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y font-sans leading-relaxed"
+              />
+            </div>
+          </div>
+
+          {/* Apply button */}
+          <div className="mt-5 flex items-center justify-end">
+            <button
+              onClick={handleApplyPrompt}
+              disabled={applyingPrompt || !editedPrompt.trim()}
+              className={clsx(
+                'inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white',
+                'bg-primary-600 hover:bg-primary-700 active:bg-primary-800',
+                'focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:ring-offset-2',
+                'transition-colors shadow-sm',
+                'disabled:opacity-60 disabled:cursor-not-allowed'
+              )}
+            >
+              {applyingPrompt ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Applying...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  Apply &amp; Push to Vapi
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Upload section */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <h2 className="text-base font-semibold text-gray-900 mb-4">Upload Recordings</h2>
@@ -1074,65 +1134,6 @@ function SessionDetailView({ sessionId, onBack, showToast }) {
         </div>
       )}
 
-      {/* Generated Prompt panel */}
-      {(session?.generated_prompt || editedPrompt) && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-5">Generated Prompt</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Current prompt */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Current Prompt
-              </label>
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-80 overflow-y-auto">
-                <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
-                  {session?.current_prompt || 'No current prompt configured.'}
-                </pre>
-              </div>
-            </div>
-
-            {/* Editable generated prompt */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Generated Prompt (editable)
-              </label>
-              <textarea
-                value={editedPrompt}
-                onChange={(e) => setEditedPrompt(e.target.value)}
-                rows={12}
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y font-sans leading-relaxed"
-              />
-            </div>
-          </div>
-
-          {/* Apply button */}
-          <div className="mt-5 flex items-center justify-end">
-            <button
-              onClick={handleApplyPrompt}
-              disabled={applyingPrompt || !editedPrompt.trim()}
-              className={clsx(
-                'inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white',
-                'bg-primary-600 hover:bg-primary-700 active:bg-primary-800',
-                'focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:ring-offset-2',
-                'transition-colors shadow-sm',
-                'disabled:opacity-60 disabled:cursor-not-allowed'
-              )}
-            >
-              {applyingPrompt ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Applying...
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  Apply &amp; Push to Vapi
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
