@@ -160,7 +160,7 @@ export default function Dashboard() {
         params: {
           from_date: todayStr,
           to_date: todayStr,
-          limit: 200,
+          limit: 100,
         },
       })
 
@@ -176,10 +176,14 @@ export default function Dashboard() {
       if (!mountedRef.current) return
       // Don't set error for 401 — the axios interceptor handles redirect
       if (err.response?.status !== 401) {
-        setError(
-          err.response?.data?.detail ||
-            'Failed to load appointments. Please try again.'
-        )
+        const detail = err.response?.data?.detail
+        const msg =
+          typeof detail === 'string'
+            ? detail
+            : Array.isArray(detail)
+              ? detail.map((d) => d.msg || d.message || JSON.stringify(d)).join('; ')
+              : 'Failed to load appointments. Please try again.'
+        setError(msg)
       }
     } finally {
       if (mountedRef.current) {
@@ -372,7 +376,7 @@ export default function Dashboard() {
           ERROR ALERT
           ================================================================ */}
       {error && (
-        error.toLowerCase().includes('no practice') && user?.role === 'super_admin' ? (
+        typeof error === 'string' && error.toLowerCase().includes('no practice') && user?.role === 'super_admin' ? (
           <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-5 py-4 text-sm shadow-sm">
             <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
