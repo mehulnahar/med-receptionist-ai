@@ -1,7 +1,11 @@
 import axios from 'axios'
 
+// IMPORTANT: Always use the relative '/api' path so all requests go through
+// the nginx reverse proxy. This ensures httpOnly cookies (refresh_token) are
+// scoped to the same origin. Using a direct backend URL breaks cookie flow
+// because login sets the cookie on domain A but refresh reads from domain B.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: '/api',
   timeout: 30_000, // 30 seconds — prevent hung requests from blocking UI forever
   headers: {
     'Content-Type': 'application/json',
