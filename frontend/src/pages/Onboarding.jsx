@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Sparkles,
   AlertTriangle,
+  Wand2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../services/api'
@@ -33,8 +34,9 @@ const STEPS = [
   { id: 3, label: 'Assign Phone Number', icon: Phone },
   { id: 4, label: 'Twilio SMS Setup', icon: MessageSquare },
   { id: 5, label: 'OpenAI API Key', icon: Brain },
-  { id: 6, label: 'Stedi Insurance Key', icon: Shield },
-  { id: 7, label: 'Review & Activate', icon: CheckCircle },
+  { id: 6, label: 'Claude AI Key', icon: Wand2 },
+  { id: 7, label: 'Stedi Insurance Key', icon: Shield },
+  { id: 8, label: 'Review & Activate', icon: CheckCircle },
 ]
 
 const STATUS_KEYS = [
@@ -44,6 +46,7 @@ const STATUS_KEYS = [
   'twilio_credentials',
   'twilio_phone',
   'openai_key',
+  'anthropic_key',
   'stedi_key',
 ]
 
@@ -54,10 +57,11 @@ const STEP_STATUS_MAP = {
   3: ['vapi_phone'],
   4: ['twilio_credentials', 'twilio_phone'],
   5: ['openai_key'],
-  6: ['stedi_key'],
+  6: ['anthropic_key'],
+  7: ['stedi_key'],
 }
 
-/** Required steps (step 6 is optional). */
+/** Required steps (steps 6 and 7 are optional). */
 const REQUIRED_STEPS = [1, 2, 3, 4, 5]
 
 // ---------------------------------------------------------------------------
@@ -867,6 +871,129 @@ function StepOpenAIKey({ stepStatus, setStepStatus, setStepDetail }) {
   )
 }
 
+function StepAnthropicKey({ stepStatus, setStepStatus, setStepDetail, goNext }) {
+  const [apiKey, setApiKey] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState(null)
+  const [messageType, setMessageType] = useState('success')
+
+  const handleValidate = async () => {
+    if (!apiKey.trim()) {
+      setMessage('Please enter your Anthropic API key.')
+      setMessageType('error')
+      return
+    }
+    setLoading(true)
+    setMessage(null)
+    try {
+      const res = await api.post('/practice/onboarding/validate-anthropic', { api_key: apiKey.trim() })
+      if (res.data.valid) {
+        setMessage('Anthropic API key validated successfully. Claude is ready for prompt generation.')
+        setMessageType('success')
+        setStepStatus((prev) => ({ ...prev, 6: true }))
+        setStepDetail((prev) => ({ ...prev, 6: apiKey.trim() }))
+      } else {
+        setMessage(res.data.message || 'Invalid Anthropic API key.')
+        setMessageType('error')
+      }
+    } catch (err) {
+      setMessage(err.response?.data?.detail || 'Failed to validate Anthropic API key.')
+      setMessageType('error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSkip = () => {
+    setStepStatus((prev) => ({ ...prev, 6: 'skipped' }))
+    goNext()
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <h2 className="text-lg font-semibold text-gray-900">Claude AI Key (Anthropic)</h2>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+          Optional
+        </span>
+      </div>
+      <p className="text-sm text-gray-500 mt-1">
+        Enter your Anthropic API key to use Claude for higher-quality prompt generation.
+        If not configured, GPT-4o will be used instead.
+      </p>
+      <a
+        href="https://console.anthropic.com/settings/keys"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 mt-2"
+      >
+        Get your key from console.anthropic.com
+        <ExternalLink className="w-3.5 h-3.5" />
+      </a>
+
+      <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
+        <div className="flex items-start gap-2">
+          <Wand2 className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-purple-800">
+            <span className="font-medium">Recommended model: claude-sonnet-4-20250514</span>
+            <p className="text-purple-600 mt-0.5">
+              Best balance of quality and speed for prompt generation. Will be used automatically when this key is configured.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <label htmlFor="anthropic-api-key" className="block text-sm font-medium text-gray-700 mb-1.5">
+          API Key
+        </label>
+        <MaskedInput
+          id="anthropic-api-key"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="sk-ant-..."
+          disabled={loading}
+        />
+        <p className="mt-1.5 text-xs text-gray-400">
+          This key is used for AI-powered prompt generation in the Training pipeline.
+        </p>
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleValidate}
+          disabled={loading}
+          className={clsx(
+            'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white',
+            'bg-purple-600 hover:bg-purple-700 active:bg-purple-800',
+            'transition-colors shadow-sm',
+            'disabled:opacity-60 disabled:cursor-not-allowed'
+          )}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Validating...
+            </>
+          ) : (
+            'Validate & Save'
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={handleSkip}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+        >
+          Skip
+        </button>
+      </div>
+
+      <InlineMessage type={messageType} message={message} />
+    </div>
+  )
+}
+
 function StepStediKey({ stepStatus, setStepStatus, setStepDetail, goNext }) {
   const [apiKey, setApiKey] = useState('')
   const [loading, setLoading] = useState(false)
@@ -886,8 +1013,8 @@ function StepStediKey({ stepStatus, setStepStatus, setStepDetail, goNext }) {
       if (res.data.valid) {
         setMessage('Stedi API key validated successfully.')
         setMessageType('success')
-        setStepStatus((prev) => ({ ...prev, 6: true }))
-        setStepDetail((prev) => ({ ...prev, 6: apiKey.trim() }))
+        setStepStatus((prev) => ({ ...prev, 7: true }))
+        setStepDetail((prev) => ({ ...prev, 7: apiKey.trim() }))
       } else {
         setMessage(res.data.message || 'Invalid Stedi API key.')
         setMessageType('error')
@@ -901,7 +1028,7 @@ function StepStediKey({ stepStatus, setStepStatus, setStepDetail, goNext }) {
   }
 
   const handleSkip = () => {
-    setStepStatus((prev) => ({ ...prev, 6: 'skipped' }))
+    setStepStatus((prev) => ({ ...prev, 7: 'skipped' }))
     goNext()
   }
 
@@ -983,7 +1110,8 @@ function StepReview({ stepStatus, stepDetail, setCurrentStep }) {
     { step: 3, label: 'Vapi Phone Number', required: true },
     { step: 4, label: 'Twilio SMS', required: true },
     { step: 5, label: 'OpenAI API Key', required: true },
-    { step: 6, label: 'Stedi Insurance', required: false },
+    { step: 6, label: 'Claude AI (Anthropic)', required: false },
+    { step: 7, label: 'Stedi Insurance', required: false },
   ]
 
   return (
@@ -1232,7 +1360,8 @@ export default function Onboarding() {
       if (data.twilio_credentials?.completed && data.twilio_phone?.completed) newStatus[4] = true
       else if (data.twilio_credentials?.completed) newStatus[4] = false // partially done
       if (data.openai_key?.completed) newStatus[5] = true
-      if (data.stedi_key?.completed) newStatus[6] = true
+      if (data.anthropic_key?.completed) newStatus[6] = true
+      if (data.stedi_key?.completed) newStatus[7] = true
 
       setStepStatus(newStatus)
 
@@ -1243,7 +1372,8 @@ export default function Onboarding() {
       if (data.vapi_phone?.detail) newDetail[3] = data.vapi_phone.detail
       if (data.twilio_phone?.detail) newDetail[4] = data.twilio_phone.detail
       if (data.openai_key?.detail) newDetail[5] = data.openai_key.detail
-      if (data.stedi_key?.detail) newDetail[6] = data.stedi_key.detail
+      if (data.anthropic_key?.detail) newDetail[6] = data.anthropic_key.detail
+      if (data.stedi_key?.detail) newDetail[7] = data.stedi_key.detail
       setStepDetail(newDetail)
 
       // Set current step to the first incomplete required step
@@ -1251,9 +1381,11 @@ export default function Onboarding() {
       if (firstIncomplete) {
         setCurrentStep(firstIncomplete)
       } else if (!newStatus[6]) {
-        setCurrentStep(6)
+        setCurrentStep(6) // Anthropic (optional)
+      } else if (!newStatus[7]) {
+        setCurrentStep(7) // Stedi (optional)
       } else {
-        setCurrentStep(7)
+        setCurrentStep(8) // Review
       }
     } catch (err) {
       if (err.response?.status !== 401) {
@@ -1269,7 +1401,7 @@ export default function Onboarding() {
   }, [fetchStatus])
 
   const goNext = () => {
-    if (currentStep < 7) setCurrentStep(currentStep + 1)
+    if (currentStep < 8) setCurrentStep(currentStep + 1)
   }
 
   const goPrev = () => {
@@ -1321,7 +1453,7 @@ export default function Onboarding() {
         )
       case 6:
         return (
-          <StepStediKey
+          <StepAnthropicKey
             stepStatus={stepStatus}
             setStepStatus={setStepStatus}
             setStepDetail={setStepDetail}
@@ -1329,6 +1461,15 @@ export default function Onboarding() {
           />
         )
       case 7:
+        return (
+          <StepStediKey
+            stepStatus={stepStatus}
+            setStepStatus={setStepStatus}
+            setStepDetail={setStepDetail}
+            goNext={goNext}
+          />
+        )
+      case 8:
         return (
           <StepReview
             stepStatus={stepStatus}
@@ -1467,7 +1608,7 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={goNext}
-                disabled={currentStep === 7}
+                disabled={currentStep === 8}
                 className={clsx(
                   'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white',
                   'bg-blue-600 hover:bg-blue-700 active:bg-blue-800',

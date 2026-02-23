@@ -107,6 +107,19 @@ class ValidateOpenAIKeyResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Anthropic (Claude) Key Validation
+# ---------------------------------------------------------------------------
+
+class ValidateAnthropicKeyRequest(BaseModel):
+    api_key: str = Field(..., min_length=1, description="Anthropic API key to validate")
+
+
+class ValidateAnthropicKeyResponse(BaseModel):
+    valid: bool
+    message: str
+
+
+# ---------------------------------------------------------------------------
 # Stedi Key Validation
 # ---------------------------------------------------------------------------
 
@@ -135,5 +148,6 @@ class OnboardingStatusResponse(BaseModel):
     twilio_credentials: OnboardingStepStatus
     twilio_phone: OnboardingStepStatus
     openai_key: OnboardingStepStatus
+    anthropic_key: OnboardingStepStatus
     stedi_key: OnboardingStepStatus
     all_complete: bool

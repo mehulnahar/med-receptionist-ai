@@ -119,6 +119,100 @@ async def _call_llm(
     return None
 
 
+async def _call_claude(
+    system_prompt: str,
+    user_prompt: str,
+    anthropic_api_key: str,
+    model: str = "claude-sonnet-4-20250514",
+    max_tokens: int = 4096,
+    temperature: float = 0.3,
+) -> str | None:
+    """
+    Call Anthropic Claude API for text generation (prompt engineering tasks).
+
+    Returns raw text (Claude does not have a native JSON mode like OpenAI).
+    Falls back gracefully on error.
+
+    Args:
+        system_prompt: The system instruction.
+        user_prompt: The user message.
+        anthropic_api_key: Per-practice Anthropic API key.
+        model: Claude model to use (default: claude-sonnet-4-20250514).
+        max_tokens: Max tokens to generate.
+        temperature: Sampling temperature.
+    """
+    import asyncio
+
+    body = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "system": system_prompt,
+        "messages": [
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    last_error = None
+    for attempt in range(_LLM_MAX_RETRIES + 1):
+        try:
+            client = get_http_client()
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=_LLM_TIMEOUT,
+            )
+
+            # Don't retry on client errors (4xx)
+            if 400 <= resp.status_code < 500:
+                logger.warning("feedback_service: Claude returned %d: %s", resp.status_code, resp.text[:200])
+                return None
+
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Extract text from Claude response
+            content_blocks = data.get("content", [])
+            text_parts = []
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    text_parts.append(block["text"])
+
+            result = "\n".join(text_parts)
+            logger.info(
+                "feedback_service: Claude call succeeded — model=%s, input_tokens=%s, output_tokens=%s",
+                model,
+                data.get("usage", {}).get("input_tokens"),
+                data.get("usage", {}).get("output_tokens"),
+            )
+            return result
+
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            last_error = e
+            if attempt < _LLM_MAX_RETRIES:
+                delay = 2 ** attempt
+                logger.info(
+                    "feedback_service: Claude call attempt %d failed (%s), retrying in %ds",
+                    attempt + 1, type(e).__name__, delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+        except Exception as e:
+            logger.warning("feedback_service: Claude call failed: %s", e)
+            return None
+
+    logger.warning(
+        "feedback_service: Claude call failed after %d attempts: %s",
+        _LLM_MAX_RETRIES + 1, last_error,
+    )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 1. Per-call quality analysis (runs after every call)
 # ---------------------------------------------------------------------------

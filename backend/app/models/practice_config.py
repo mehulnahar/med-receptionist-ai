@@ -36,6 +36,9 @@ class PracticeConfig(Base):
     vapi_voice_provider = Column(String(50), default="11labs", nullable=False)
     vapi_voice_id = Column(String(100), nullable=True)
 
+    # Anthropic (Claude) — used for prompt generation in training pipeline
+    anthropic_api_key = Column(EncryptedString(500), nullable=True)
+
     # Insurance - Stedi
     stedi_api_key = Column(EncryptedString(500), nullable=True)
     stedi_enabled = Column(Boolean, default=False, nullable=False)

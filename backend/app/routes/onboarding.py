@@ -34,6 +34,8 @@ from app.schemas.onboarding import (
     SaveTwilioConfigResponse,
     ValidateOpenAIKeyRequest,
     ValidateOpenAIKeyResponse,
+    ValidateAnthropicKeyRequest,
+    ValidateAnthropicKeyResponse,
     ValidateStediKeyRequest,
     ValidateStediKeyResponse,
     OnboardingStatusResponse,
@@ -240,6 +242,29 @@ async def validate_openai(
         logger.info("OpenAI API key validated and saved for practice %s", practice_id)
 
     return ValidateOpenAIKeyResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic (Claude) Key Endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/validate-anthropic", response_model=ValidateAnthropicKeyResponse)
+async def validate_anthropic(
+    body: ValidateAnthropicKeyRequest,
+    current_user: User = Depends(require_practice_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Validate and save an Anthropic API key (used for prompt generation with Claude)."""
+    practice_id = _ensure_practice(current_user)
+
+    from app.services.onboarding_service import validate_anthropic_key, save_anthropic_key
+    result = await validate_anthropic_key(body.api_key)
+
+    if result["valid"]:
+        await save_anthropic_key(db, practice_id, body.api_key)
+        logger.info("Anthropic API key validated and saved for practice %s", practice_id)
+
+    return ValidateAnthropicKeyResponse(**result)
 
 
 # ---------------------------------------------------------------------------

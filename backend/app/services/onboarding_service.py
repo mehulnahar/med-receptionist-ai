@@ -996,11 +996,13 @@ async def get_onboarding_status(db: AsyncSession, practice_id: UUID) -> dict:
     # if the global OPENAI_API_KEY is configured
     settings = get_settings()
     openai_key_set = bool(getattr(settings, "OPENAI_API_KEY", None))
+    anthropic_key_set = bool(config.anthropic_api_key)
     stedi_configured = bool(config.stedi_api_key and config.stedi_enabled)
 
-    steps = [
+    # Anthropic and Stedi are optional — don't block "all_complete"
+    required_steps = [
         vapi_key_set, vapi_assistant_created, vapi_phone_assigned,
-        twilio_creds_set, twilio_phone_set, openai_key_set, stedi_configured,
+        twilio_creds_set, twilio_phone_set, openai_key_set,
     ]
 
     return {
@@ -1028,11 +1030,15 @@ async def get_onboarding_status(db: AsyncSession, practice_id: UUID) -> dict:
             "completed": openai_key_set,
             "detail": "API key configured" if openai_key_set else None,
         },
+        "anthropic_key": {
+            "completed": anthropic_key_set,
+            "detail": "API key saved" if anthropic_key_set else None,
+        },
         "stedi_key": {
             "completed": stedi_configured,
             "detail": "API key saved" if stedi_configured else None,
         },
-        "all_complete": all(steps),
+        "all_complete": all(required_steps),
     }
 
 
@@ -1077,3 +1083,92 @@ async def save_stedi_key(db: AsyncSession, practice_id: UUID, api_key: str) -> N
     config.stedi_enabled = True
     await db.commit()
     logger.info("Saved Stedi API key and enabled Stedi for practice %s", practice_id)
+
+
+# ============================================================
+# Anthropic (Claude) Key Validation
+# ============================================================
+
+ANTHROPIC_API_BASE = "https://api.anthropic.com"
+
+
+async def validate_anthropic_key(api_key: str) -> dict:
+    """
+    Validate an Anthropic API key by calling POST /v1/messages with a minimal request.
+
+    Returns ``{"valid": bool, "message": str}``.
+    """
+    client = get_http_client()
+    url = f"{ANTHROPIC_API_BASE}/v1/messages"
+    logger.info("Validating Anthropic API key via POST %s", url)
+
+    try:
+        response = await client.post(
+            url,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 10,
+                "messages": [{"role": "user", "content": "Hi"}],
+            },
+            timeout=_API_TIMEOUT,
+        )
+        response.raise_for_status()
+        logger.info("Anthropic key validated successfully")
+        return {
+            "valid": True,
+            "message": "Anthropic API key is valid. Claude is ready for prompt generation.",
+        }
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        logger.warning("Anthropic key validation failed (HTTP %d)", status)
+        if status == 401:
+            return {
+                "valid": False,
+                "message": "Invalid Anthropic API key. Please check your key and try again.",
+            }
+        if status == 403:
+            return {
+                "valid": False,
+                "message": "Anthropic API key is not authorized. Please check permissions.",
+            }
+        if status == 429:
+            # Rate limited means key is valid
+            return {
+                "valid": True,
+                "message": "Anthropic API key is valid (rate-limited, try again shortly).",
+            }
+        if status == 400:
+            # Bad request but auth passed — key is valid, request format issue
+            try:
+                body = exc.response.json()
+                error_type = body.get("error", {}).get("type", "")
+                if error_type in ("invalid_request_error",):
+                    return {
+                        "valid": True,
+                        "message": "Anthropic API key is valid.",
+                    }
+            except Exception:
+                pass
+        return {
+            "valid": False,
+            "message": f"Anthropic API returned an unexpected error (HTTP {status}). Please try again.",
+        }
+    except httpx.RequestError as exc:
+        logger.error("Network error validating Anthropic key: %s", exc)
+        return {
+            "valid": False,
+            "message": "Could not connect to the Anthropic API. Please check your internet connection.",
+        }
+
+
+async def save_anthropic_key(db: AsyncSession, practice_id: UUID, api_key: str) -> None:
+    """Save a validated Anthropic API key to PracticeConfig."""
+    config = await _get_practice_config(db, practice_id)
+    config.anthropic_api_key = api_key
+    await db.commit()
+    logger.info("Saved Anthropic API key for practice %s", practice_id)
