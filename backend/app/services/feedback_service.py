@@ -40,11 +40,23 @@ _LLM_TIMEOUT = httpx.Timeout(45.0, connect=10.0, pool=5.0)
 _LLM_MAX_RETRIES = 2
 
 
-async def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = True) -> dict | str | None:
+async def _call_llm(
+    system_prompt: str,
+    user_prompt: str,
+    json_mode: bool = True,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> dict | str | None:
     """
-    Call GPT-4o-mini for analysis. Returns parsed JSON if json_mode else raw text.
+    Call OpenAI LLM for analysis. Returns parsed JSON if json_mode else raw text.
     Falls back gracefully if no API key configured.
     Retries on transient errors (5xx, timeouts) up to _LLM_MAX_RETRIES times.
+
+    Args:
+        model: Override the default model (default: gpt-4o-mini).
+        max_tokens: Override the default max_tokens (default: 1500).
+        temperature: Override the default temperature (default: 0.2).
     """
     api_key = get_settings().OPENAI_API_KEY
     if not api_key:
@@ -54,13 +66,13 @@ async def _call_llm(system_prompt: str, user_prompt: str, json_mode: bool = True
     import asyncio
 
     body = {
-        "model": "gpt-4o-mini",
+        "model": model or "gpt-4o-mini",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.2,
-        "max_tokens": 1500,
+        "temperature": temperature if temperature is not None else 0.2,
+        "max_tokens": max_tokens or 1500,
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}

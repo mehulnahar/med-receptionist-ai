@@ -678,11 +678,16 @@ async def generate_training_prompt(
         f"Generate the complete improved system prompt."
     )
 
-    # Use text mode (not JSON) since we want a raw prompt string
+    # Use GPT-4o (not mini) for prompt generation — this is a nuanced creative
+    # task that requires understanding what to keep and what to enhance.
+    # Higher max_tokens because the enhanced prompt can be 5,000+ chars.
     generated = await _call_llm(
         PROMPT_GENERATION_SYSTEM_PROMPT,
         user_prompt,
         json_mode=False,
+        model="gpt-4o",
+        max_tokens=4000,
+        temperature=0.3,
     )
 
     if not generated or not isinstance(generated, str):
