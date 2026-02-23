@@ -502,6 +502,57 @@ async def list_recordings(
 
 
 # ---------------------------------------------------------------------------
+# Retry Aggregation (for stuck sessions)
+# ---------------------------------------------------------------------------
+
+@router.post("/sessions/{session_id}/retry-aggregation")
+async def retry_aggregation(
+    session_id: UUID,
+    current_user: User = Depends(require_any_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-run insight aggregation for a stuck session where all recordings are done."""
+    practice_id = _ensure_practice(current_user)
+
+    result = await db.execute(
+        select(TrainingSession).where(
+            TrainingSession.id == session_id,
+            TrainingSession.practice_id == practice_id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Training session not found")
+
+    from app.services.training_service import aggregate_session_insights, generate_training_prompt
+
+    # Run aggregation
+    insights = await aggregate_session_insights(db, session_id)
+
+    # Generate prompt if insights succeeded
+    prompt = None
+    if insights:
+        prompt = await generate_training_prompt(db, session_id)
+
+    # Mark session completed
+    result = await db.execute(
+        select(TrainingSession).where(TrainingSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if session:
+        session.status = "completed"
+        session.completed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    return {
+        "status": "completed",
+        "has_insights": bool(insights),
+        "has_prompt": bool(prompt),
+        "prompt_length": len(prompt) if prompt else 0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Insights & Prompt Generation
 # ---------------------------------------------------------------------------
 
