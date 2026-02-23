@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import axios from 'axios'
 import api, { setAccessToken, getAccessToken, clearAccessToken } from '../services/api'
 
 const AuthContext = createContext(null)
@@ -86,8 +87,14 @@ export function AuthProvider({ children }) {
 
     const restoreSession = async () => {
       try {
-        // Try to get a new access token using the refresh cookie
-        const { data } = await api.post('/auth/refresh', {}, { signal: abortController.signal })
+        // Try to get a new access token using the refresh cookie.
+        // Use absolute path so it goes through the nginx proxy (same origin
+        // as the cookie domain) instead of directly to the backend baseURL.
+        const { data } = await axios.post('/api/auth/refresh', {}, {
+          headers: { 'Content-Type': 'application/json' },
+          withCredentials: true,
+          signal: abortController.signal,
+        })
         if (data.access_token) {
           setAccessToken(data.access_token)
           setToken(data.access_token)

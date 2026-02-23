@@ -85,9 +85,11 @@ api.interceptors.response.use(
       isRefreshing = true
 
       try {
-        // Refresh token is sent automatically via httpOnly cookie
+        // Refresh token is sent automatically via httpOnly cookie.
+        // IMPORTANT: Always use relative URL so the request goes through
+        // the nginx proxy (same origin as the cookie domain).
         const { data } = await axios.post(
-          `${api.defaults.baseURL}/auth/refresh`,
+          '/api/auth/refresh',
           {},
           {
             headers: { 'Content-Type': 'application/json' },
