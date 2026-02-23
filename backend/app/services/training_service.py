@@ -94,26 +94,42 @@ All frequency/distribution values should be percentages or counts as appropriate
 Focus on actionable patterns that will help the AI receptionist serve this practice's patients."""
 
 PROMPT_GENERATION_SYSTEM_PROMPT = """You are an expert prompt engineer specializing in AI medical receptionists.
+
 You are given:
-1. The current system prompt used by the AI receptionist
+1. The CURRENT system prompt that is LIVE in production — this is the BASE
 2. Aggregated insights from real call recordings at this practice
 
-Your task: Generate an improved, complete system prompt that incorporates everything learned
-from the recordings while preserving all essential instructions from the current prompt.
+Your task: ENHANCE the current prompt by weaving in learnings from the call recordings.
 
-Requirements:
-- Keep HIPAA compliance instructions, emergency protocols, and transfer rules intact
-- Keep all existing tool call instructions and function signatures
-- Incorporate practice-specific vocabulary and common phrases from the recordings
-- Add handling for the specific insurance carriers mentioned in calls
-- Add mapping for the specific appointment types this practice uses
-- Improve Spanish language handling based on actual bilingual patterns observed
-- Add the receptionist's effective strategies and communication patterns
-- Address the identified difficulty areas with specific guidance
-- Keep the tone natural, warm, and professional
-- The prompt must be complete and ready to use — not a diff or partial update
+CRITICAL RULES:
+- The current prompt is the FOUNDATION. You MUST preserve its ENTIRE structure, identity,
+  personality, office info, tool-calling instructions, booking flow, transfer rules, and all
+  specific details (doctor name, hours, appointment types, insurance list, etc.)
+- DO NOT rewrite from scratch. DO NOT create a generic prompt. KEEP the existing prompt
+  and ADD/REFINE sections based on the call recording insights.
+- Keep the SAME character name, office identity, and speaking style
+- Keep ALL existing sections and their content — only add, refine, or expand
+- Keep ALL tool call references (save_caller_info, verify_insurance, check_availability, etc.)
 
-Output the complete system prompt text only. No JSON wrapping, no explanations — just the prompt."""
+What to ADD or ENHANCE based on insights:
+- Add commonly heard caller phrases to help recognition
+- Add any new insurance carriers mentioned in calls that aren't already listed
+- Add any new appointment types observed in calls
+- Enhance Spanish phrases based on actual bilingual patterns observed
+- Add specific handling for difficulty areas identified in the recordings
+- Incorporate effective receptionist strategies and communication patterns
+- Add tips for common caller intents and how to handle them
+
+What NOT to change:
+- The assistant's name and identity
+- Office hours, doctor info, appointment types already listed
+- The booking flow steps
+- Tool call instructions (save_caller_info, verify_insurance, etc.)
+- Transfer rules
+- Emergency protocols
+- The overall structure and formatting
+
+Output the complete enhanced system prompt text only. No JSON wrapping, no explanations — just the prompt."""
 
 
 # ---------------------------------------------------------------------------
@@ -581,7 +597,10 @@ async def generate_training_prompt(
         )
         return None
 
-    # Fetch the current system prompt from PracticeConfig
+    # Fetch the current system prompt — try multiple sources in priority order:
+    # 1. Live Vapi assistant (most accurate, the actual prompt in production)
+    # 2. PracticeConfig fields
+    # 3. Active PromptVersion record
     config_result = await db.execute(
         select(PracticeConfig).where(
             PracticeConfig.practice_id == session.practice_id
@@ -590,12 +609,40 @@ async def generate_training_prompt(
     config = config_result.scalar_one_or_none()
 
     current_prompt = None
-    if config:
-        # Prefer vapi_system_prompt, fall back to system_prompt
-        current_prompt = config.vapi_system_prompt or config.system_prompt
 
+    # Priority 1: Fetch live prompt from Vapi assistant
+    if config and config.vapi_assistant_id:
+        vapi_key = getattr(config, "vapi_api_key", None) or get_settings().VAPI_API_KEY
+        if vapi_key:
+            try:
+                client = get_http_client()
+                resp = await client.get(
+                    f"https://api.vapi.ai/assistant/{config.vapi_assistant_id}",
+                    headers={"Authorization": f"Bearer {vapi_key}"},
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                vapi_data = resp.json()
+                messages = vapi_data.get("model", {}).get("messages", [])
+                for msg in messages:
+                    if msg.get("role") == "system" and msg.get("content"):
+                        current_prompt = msg["content"]
+                        logger.info(
+                            "training_service: fetched live prompt from Vapi (%d chars)",
+                            len(current_prompt),
+                        )
+                        break
+            except Exception as exc:
+                logger.warning(
+                    "training_service: failed to fetch live Vapi prompt: %s", exc
+                )
+
+    # Priority 2: PracticeConfig fields
+    if not current_prompt and config:
+        current_prompt = config.vapi_system_prompt or getattr(config, "system_prompt", None)
+
+    # Priority 3: Active PromptVersion
     if not current_prompt:
-        # Try fetching from PromptVersion (feedback service)
         from app.models.feedback import PromptVersion
         pv_result = await db.execute(
             select(PromptVersion.prompt_text)
@@ -659,7 +706,7 @@ async def generate_training_prompt(
     # Store on the session
     session.generated_prompt = generated
     session.current_prompt_snapshot = current_prompt
-    await db.flush()
+    await db.commit()
 
     logger.info(
         "training_service: generated prompt for session %s — %d chars",
@@ -738,7 +785,7 @@ async def apply_training_prompt(
         if push_to_vapi:
             pushed = await push_prompt_to_vapi(practice_id, prompt_text, db)
 
-        await db.flush()
+        await db.commit()
 
         logger.info(
             "training_service: applied training prompt v%d for practice %s (pushed=%s)",
