@@ -310,7 +310,7 @@ function SessionListView({ sessions, loading, onSelect, onCreate, onRefresh, ref
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sessions.map((session) => {
-            const recordingCount = session.recording_count || session.recordings?.length || 0
+            const recordingCount = session.total_recordings || session.recording_count || session.recordings?.length || 0
             const processedCount = session.processed_count || 0
             const progressPct = recordingCount > 0
               ? Math.round((processedCount / recordingCount) * 100)
