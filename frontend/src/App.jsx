@@ -25,6 +25,7 @@ const Admin = lazy(() => import('./pages/Admin'))
 const Training = lazy(() => import('./pages/Training'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
 const ROIDashboard = lazy(() => import('./pages/ROIDashboard'))
+const Security = lazy(() => import('./pages/Security'))
 
 function App() {
   return (
@@ -89,6 +90,7 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="security" element={<Security />} />
             </Route>
 
             {/* Catch-all redirect */}

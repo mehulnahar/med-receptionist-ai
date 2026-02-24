@@ -138,10 +138,10 @@ export function AuthProvider({ children }) {
   /**
    * login(email, password)
    *
-   * 1. POST /api/auth/login -> receive { access_token, token_type, user }
+   * 1. POST /api/auth/login -> receive { access_token, token_type, user, mfa_required, mfa_token }
    *    (refresh_token is set as httpOnly cookie by the backend)
-   * 2. Store access_token in memory only
-   * 3. Fetch user profile from /api/auth/me
+   * 2. If mfa_required: return { mfa_required: true, mfa_token } so Login page can show TOTP input
+   * 3. Otherwise: store access_token in memory, fetch user profile
    */
   const login = useCallback(async (email, password) => {
     setLoading(true)
@@ -149,7 +149,13 @@ export function AuthProvider({ children }) {
 
     try {
       const response = await api.post('/auth/login', { email, password })
-      const { access_token } = response.data
+      const { access_token, mfa_required, mfa_token } = response.data
+
+      // MFA challenge — return early so the Login page can show TOTP input
+      if (mfa_required) {
+        setLoading(false)
+        return { mfa_required: true, mfa_token }
+      }
 
       // Store access token in memory only (NOT localStorage)
       setAccessToken(access_token)
@@ -199,6 +205,44 @@ export function AuthProvider({ children }) {
   }, [fetchUser])
 
   /**
+   * verifyMFA(mfaToken, code) — complete login after MFA challenge.
+   * Exchanges the temporary MFA token + TOTP code for real access/refresh tokens.
+   */
+  const verifyMFA = useCallback(async (mfaToken, code) => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await api.post('/auth/mfa-verify', {
+        mfa_token: mfaToken,
+        code,
+      })
+      const { access_token } = response.data
+
+      setAccessToken(access_token)
+      setToken(access_token)
+
+      const userData = await fetchUser()
+      if (!userData) {
+        throw new Error('Failed to load user profile after MFA verification.')
+      }
+
+      setLoading(false)
+      return userData
+    } catch (err) {
+      let message = 'MFA verification failed.'
+      if (err.response?.data?.detail) {
+        message = err.response.data.detail
+      }
+
+      setError(message)
+      setLoading(false)
+
+      throw new Error(message)
+    }
+  }, [fetchUser])
+
+  /**
    * logout() — clear all auth state and call backend to clear refresh cookie.
    */
   const logout = useCallback(async () => {
@@ -226,6 +270,7 @@ export function AuthProvider({ children }) {
     loading,
     error,
     login,
+    verifyMFA,
     logout,
     clearError,
     isAuthenticated: !!user && !!token,

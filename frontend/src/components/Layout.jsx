@@ -8,6 +8,7 @@ import {
   BarChart3,
   Settings,
   Shield,
+  ShieldCheck,
   LogOut,
   Menu,
   X,
@@ -49,6 +50,11 @@ const NAV_ITEMS = [
     path: '/settings',
     icon: Settings,
     roles: ['practice_admin', 'super_admin'],
+  },
+  {
+    label: 'Security',
+    path: '/security',
+    icon: ShieldCheck,
   },
   {
     label: 'Super Admin',
