@@ -271,4 +271,67 @@ async def run_hipaa_migrations(session: AsyncSession) -> None:
         await session.rollback()
         logger.warning("hipaa_migrations: escalation_events skipped: %s", e)
 
+    # 11. Add user_agent to audit_logs table
+    try:
+        await session.execute(text(
+            "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500)"
+        ))
+        await session.commit()
+        logger.info("hipaa_migrations: audit_logs.user_agent column ensured")
+    except Exception as e:
+        await session.rollback()
+        logger.warning("hipaa_migrations: audit_logs.user_agent skipped: %s", e)
+
+    # 12. Data retention config table
+    try:
+        await session.execute(text("""
+            CREATE TABLE IF NOT EXISTS data_retention_config (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                practice_id UUID NOT NULL UNIQUE REFERENCES practices(id),
+                recording_retention_days INTEGER DEFAULT 365,
+                transcript_retention_days INTEGER DEFAULT 365,
+                call_log_retention_days INTEGER DEFAULT 2555,
+                audit_log_retention_days INTEGER DEFAULT 2555,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        await session.commit()
+        logger.info("hipaa_migrations: data_retention_config table ensured")
+    except Exception as e:
+        await session.rollback()
+        logger.warning("hipaa_migrations: data_retention_config skipped: %s", e)
+
+    # 13. MFA columns on users table
+    mfa_user_columns = [
+        ("mfa_secret", "VARCHAR(300)"),
+        ("mfa_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("mfa_backup_codes", "JSONB"),
+    ]
+    for col_name, col_type in mfa_user_columns:
+        try:
+            await session.execute(text(
+                f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            ))
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.warning("hipaa_migrations: users.%s skipped: %s", col_name, e)
+
+    # 14. pVerify and insurance provider columns on practice_configs
+    pverify_columns = [
+        ("pverify_client_id", "VARCHAR(500)"),
+        ("pverify_client_secret", "VARCHAR(500)"),
+        ("insurance_provider", "VARCHAR(20) NOT NULL DEFAULT 'stedi'"),
+    ]
+    for col_name, col_type in pverify_columns:
+        try:
+            await session.execute(text(
+                f"ALTER TABLE practice_configs ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            ))
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.warning("hipaa_migrations: practice_configs.%s skipped: %s", col_name, e)
+
     logger.info("hipaa_migrations: all HIPAA migrations completed")

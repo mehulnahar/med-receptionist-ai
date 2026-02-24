@@ -1,7 +1,7 @@
 import uuid
 
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, text
+from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -21,6 +21,16 @@ class User(Base):
     password_change_required = Column(Boolean, default=False, nullable=False, server_default=text("false"))
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # HIPAA: Account lockout
+    failed_login_attempts = Column(Integer, default=0, nullable=False, server_default=text("0"))
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    last_password_change = Column(DateTime(timezone=True), nullable=True)
+
+    # HIPAA: MFA (TOTP)
+    mfa_secret = Column(String(300), nullable=True)
+    mfa_enabled = Column(Boolean, default=False, nullable=False, server_default=text("false"))
+    mfa_backup_codes = Column(JSON, nullable=True)
 
     # Relationships
     practice = relationship("Practice", back_populates="users", lazy="select")

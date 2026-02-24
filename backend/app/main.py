@@ -34,6 +34,10 @@ class _RequestIdFilter(logging.Filter):
 # Attach the filter to the root logger so ALL loggers inherit it
 logging.getLogger().addFilter(_RequestIdFilter())
 
+# HIPAA: Attach PHI sanitization filter to prevent PHI leakage in logs
+from app.hipaa.log_sanitizer import PHISanitizationFilter
+logging.getLogger().addFilter(PHISanitizationFilter())
+
 # Background task health tracking — updated by each loop iteration
 _background_health: dict[str, float] = {}
 

@@ -29,7 +29,7 @@ async def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(user_id: UUID, email: str, role: str, practice_id: UUID | None = None) -> str:
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + timedelta(hours=settings.JWT_EXPIRY_HOURS)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRY_MINUTES)
     payload = {
         "sub": str(user_id),
         "email": email,
@@ -73,6 +73,31 @@ def decode_refresh_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
         if payload.get("type") != "refresh":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
+def create_mfa_token(user_id: UUID) -> str:
+    """Create a short-lived token for MFA verification step (5 min)."""
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=5)
+    payload = {
+        "sub": str(user_id),
+        "type": "mfa_challenge",
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+
+
+def decode_mfa_token(token: str) -> dict | None:
+    """Decode and validate an MFA challenge token."""
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
+        if payload.get("type") != "mfa_challenge":
             return None
         return payload
     except JWTError:

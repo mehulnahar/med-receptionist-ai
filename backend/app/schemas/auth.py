@@ -17,6 +17,8 @@ class LoginResponse(BaseModel):
     refresh_token: str | None = None
     token_type: str = "bearer"
     user: UserResponse
+    mfa_required: bool = False
+    mfa_token: str | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -30,18 +32,20 @@ class RefreshResponse(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=12, max_length=128)
 
     @field_validator("new_password")
     @classmethod
     def password_complexity(cls, v: str) -> str:
-        """Enforce minimum complexity: 1 uppercase, 1 lowercase, 1 digit."""
+        """Enforce HIPAA password complexity: upper, lower, digit, special."""
         if not re.search(r"[A-Z]", v):
             raise ValueError("Password must contain at least one uppercase letter")
         if not re.search(r"[a-z]", v):
             raise ValueError("Password must contain at least one lowercase letter")
         if not re.search(r"\d", v):
             raise ValueError("Password must contain at least one digit")
+        if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?`~]", v):
+            raise ValueError("Password must contain at least one special character")
         return v
 
 

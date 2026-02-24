@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     DATABASE_URL_SYNC: str = "postgresql+psycopg2://postgres:postgres@db:5432/ai_receptionist"
     JWT_SECRET: str = "change-me-in-production"
     JWT_EXPIRY_HOURS: int = 24
+    JWT_EXPIRY_MINUTES: int = 30  # HIPAA: shorter access token lifetime
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
@@ -19,6 +20,9 @@ class Settings(BaseSettings):
     VAPI_API_KEY: str = ""
     VAPI_WEBHOOK_SECRET: str = ""
     STEDI_API_KEY: str = ""
+    PVERIFY_CLIENT_ID: str = ""
+    PVERIFY_CLIENT_SECRET: str = ""
+    PVERIFY_API_URL: str = "https://api.pverify.com/api"
     OPENAI_API_KEY: str = ""
     APP_URL: str = "http://localhost:8000"
     APP_ENV: str = "development"

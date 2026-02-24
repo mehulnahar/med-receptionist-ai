@@ -44,6 +44,11 @@ class PracticeConfig(Base):
     stedi_enabled = Column(Boolean, default=False, nullable=False)
     insurance_verification_on_call = Column(Boolean, default=True, nullable=False)
 
+    # Insurance - pVerify (alternative to Stedi)
+    pverify_client_id = Column(EncryptedString(500), nullable=True)
+    pverify_client_secret = Column(EncryptedString(500), nullable=True)
+    insurance_provider = Column(String(20), default="stedi", nullable=False, server_default=text("'stedi'"))  # "stedi" or "pverify"
+
     # Languages
     languages = Column(JSON, default=lambda: ["en"], nullable=False)
     primary_language = Column(String(5), default="en", nullable=False)

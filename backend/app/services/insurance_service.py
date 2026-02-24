@@ -368,6 +368,20 @@ async def check_eligibility(
     """
     settings = get_settings()
 
+    # --- 0. Check if practice uses pVerify instead of Stedi ---
+    _cfg_stmt = select(PracticeConfig).where(PracticeConfig.practice_id == practice_id)
+    _cfg_result = await db.execute(_cfg_stmt)
+    _practice_cfg = _cfg_result.scalar_one_or_none()
+    _insurance_provider = getattr(_practice_cfg, "insurance_provider", "stedi") if _practice_cfg else "stedi"
+
+    if _insurance_provider == "pverify":
+        from app.services.pverify_service import check_eligibility_pverify
+        return await check_eligibility_pverify(
+            db=db, practice_id=practice_id, patient_id=patient_id,
+            carrier_name=carrier_name, member_id=member_id,
+            first_name=first_name, last_name=last_name, dob=dob, call_id=call_id,
+        )
+
     # --- 1. Resolve payer ID ---
     payer_id, matched_carrier = await resolve_payer_id(db, practice_id, carrier_name)
 

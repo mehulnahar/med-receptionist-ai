@@ -61,6 +61,10 @@ async def log_audit(
             if not ip:
                 ip = request.client.host if request.client else None
 
+        user_agent = None
+        if request:
+            user_agent = (request.headers.get("user-agent", "") or "")[:500] or None
+
         entry = AuditLog(
             practice_id=practice_id or (getattr(user, "practice_id", None) if user else None),
             user_id=getattr(user, "id", None) if user else None,
@@ -70,6 +74,7 @@ async def log_audit(
             old_value=old_value,
             new_value=new_value,
             ip_address=ip,
+            user_agent=user_agent,
         )
         db.add(entry)
         # Don't commit — let the caller's transaction handle it.

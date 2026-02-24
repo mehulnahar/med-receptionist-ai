@@ -19,6 +19,7 @@ class AuditLog(Base):
     old_value = Column(JSON, nullable=True)
     new_value = Column(JSON, nullable=True)
     ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self):
