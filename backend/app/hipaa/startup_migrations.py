@@ -334,4 +334,22 @@ async def run_hipaa_migrations(session: AsyncSession) -> None:
             await session.rollback()
             logger.warning("hipaa_migrations: practice_configs.%s skipped: %s", col_name, e)
 
+    # 15. Set last_password_change for existing users who have NULL
+    #     (prevents immediate lockout from password expiry check)
+    try:
+        await session.execute(text(
+            "UPDATE users SET last_password_change = NOW() "
+            "WHERE last_password_change IS NULL"
+        ))
+        # Also reset password_change_required for existing users
+        await session.execute(text(
+            "UPDATE users SET password_change_required = FALSE "
+            "WHERE password_change_required = TRUE"
+        ))
+        await session.commit()
+        logger.info("hipaa_migrations: set last_password_change for existing users")
+    except Exception as e:
+        await session.rollback()
+        logger.warning("hipaa_migrations: last_password_change update skipped: %s", e)
+
     logger.info("hipaa_migrations: all HIPAA migrations completed")
