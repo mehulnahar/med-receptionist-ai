@@ -184,12 +184,33 @@ async def _resolve_practice_id(
             if practice_id:
                 return practice_id
 
-    # 3. No fallback — reject unknown practices to prevent cross-tenant data leaks.
-    #    In single-tenant mode, ensure the Vapi phone number is correctly
-    #    configured in PracticeConfig so resolution works via step 2.
+    # 3. Fallback: use the first active practice (single-tenant safety net).
+    #    This fires when the Vapi phone number isn't yet saved in practice_config.
+    #    Fix the root cause by saving the Twilio number in PracticeConfig settings.
+    try:
+        from app.models.practice import Practice
+        fallback_stmt = (
+            select(Practice.id)
+            .where(Practice.status == "active")
+            .order_by(Practice.created_at)
+            .limit(1)
+        )
+        fallback_result = await db.execute(fallback_stmt)
+        fallback_id = fallback_result.scalar_one_or_none()
+        if fallback_id:
+            logger.warning(
+                "_resolve_practice_id: phone lookup failed for call_id=%s — "
+                "falling back to first active practice %s. "
+                "Fix: save the Twilio phone number in Settings → Practice Config.",
+                vapi_call_id, fallback_id,
+            )
+            return fallback_id
+    except Exception as fb_err:
+        logger.error("_resolve_practice_id: fallback query failed: %s", fb_err)
+
     logger.error(
-        "_resolve_practice_id: could not resolve practice from call_id=%s or phone number. "
-        "Ensure the Vapi phone number is configured in PracticeConfig.",
+        "_resolve_practice_id: no practice found for call_id=%s. "
+        "No active practices exist in the database.",
         vapi_call_id,
     )
     return None
