@@ -342,6 +342,30 @@ async def _run_startup_migrations():
             await session.rollback()
             logger.warning("startup_migrations: patient index cleanup skipped: %s", e)
 
+        # Add practice_id to holidays table (was missing from initial schema)
+        try:
+            await session.execute(text(
+                "ALTER TABLE holidays ADD COLUMN IF NOT EXISTS "
+                "practice_id UUID REFERENCES practices(id) ON DELETE CASCADE"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: holidays.practice_id column ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: holidays.practice_id skipped: %s", e)
+
+        # Drop old single-column unique constraint on holidays.date (if it exists)
+        # Replace with practice_id+date uniqueness enforced at app level
+        try:
+            await session.execute(text(
+                "ALTER TABLE holidays DROP CONSTRAINT IF EXISTS uq_holiday_date"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: dropped uq_holiday_date constraint")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: uq_holiday_date drop skipped: %s", e)
+
         # Assign admin user to Stefanides practice if not already assigned
         try:
             result = await session.execute(text("""

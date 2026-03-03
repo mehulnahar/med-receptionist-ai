@@ -36,42 +36,37 @@ def hash_password(password: str) -> str:
 
 async def seed_database() -> None:
     """Seed the database with initial data for Stefanides practice."""
+    # ------------------------------------------------------------------
+    # Phase 1: Critical data (practice + users) — committed immediately
+    # so that even if later seeding steps fail, users can still log in.
+    # ------------------------------------------------------------------
     async with AsyncSessionLocal() as session:
-        # ------------------------------------------------------------------
-        # 1. Practice
-        # ------------------------------------------------------------------
         practice = await _get_or_create_practice(session)
         practice_id = practice.id
-
-        # ------------------------------------------------------------------
-        # 2. Users
-        # ------------------------------------------------------------------
         await _seed_users(session, practice_id)
+        await session.commit()
+        logger.info("Seed phase 1 complete: practice and users committed.")
 
-        # ------------------------------------------------------------------
-        # 3. Practice Config
-        # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Phase 2: Supporting data — best-effort, failures are non-fatal
+    # ------------------------------------------------------------------
+    async with AsyncSessionLocal() as session:
+        # Re-fetch practice (committed in phase 1)
+        from sqlalchemy import select as _select
+        result = await session.execute(
+            _select(Practice).where(Practice.slug == "stefanides-md")
+        )
+        practice = result.scalars().first()
+        if not practice:
+            logger.warning("Seed phase 2 skipped: practice not found after phase 1.")
+            return
+        practice_id = practice.id
+
         await _seed_practice_config(session, practice_id)
-
-        # ------------------------------------------------------------------
-        # 4. Schedule Templates
-        # ------------------------------------------------------------------
         await _seed_schedule_templates(session, practice_id)
-
-        # ------------------------------------------------------------------
-        # 5. Appointment Types
-        # ------------------------------------------------------------------
         await _seed_appointment_types(session, practice_id)
-
-        # ------------------------------------------------------------------
-        # 6. Insurance Carriers
-        # ------------------------------------------------------------------
         await _seed_insurance_carriers(session, practice_id)
-
-        # ------------------------------------------------------------------
-        # 7. Holidays (2026)
-        # ------------------------------------------------------------------
-        await _seed_holidays(session)
+        await _seed_holidays(session, practice_id)
 
         await session.commit()
         logger.info("Database seeding completed successfully.")
@@ -376,10 +371,10 @@ async def _seed_insurance_carriers(session: AsyncSession, practice_id) -> None:
     logger.info("Created %d insurance carriers.", len(carriers))
 
 
-async def _seed_holidays(session: AsyncSession) -> None:
+async def _seed_holidays(session: AsyncSession, practice_id) -> None:
     """Create US holidays for 2026 if they do not exist."""
     result = await session.execute(
-        select(Holiday).where(Holiday.year == 2026)
+        select(Holiday).where(Holiday.practice_id == practice_id, Holiday.year == 2026)
     )
     existing = result.scalars().all()
     if existing:
@@ -399,6 +394,7 @@ async def _seed_holidays(session: AsyncSession) -> None:
 
     for date, name in holidays:
         holiday = Holiday(
+            practice_id=practice_id,
             date=date,
             name=name,
             year=2026,
