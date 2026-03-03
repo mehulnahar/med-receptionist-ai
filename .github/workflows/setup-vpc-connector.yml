@@ -24,11 +24,11 @@ jobs:
       - name: Create VPC connector and attach to App Runner
         id: vpc-connector
         run: |
-          # Get subnets inline (avoid GITHUB_OUTPUT multi-value issues)
+          # Get subnets inline — exclude use1-az3 (not supported by App Runner)
           mapfile -t SUBNET_IDS < <(aws ec2 describe-subnets \
             --filters "Name=vpc-id,Values=$VPC_ID" \
             --region $AWS_REGION \
-            --query "Subnets[*].SubnetId" \
+            --query "Subnets[?AvailabilityZoneId!='use1-az3'].SubnetId" \
             --output text | tr '\t' '\n' | grep -v '^$')
           echo "Found subnets: ${SUBNET_IDS[@]}"
 
