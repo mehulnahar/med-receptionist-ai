@@ -52,14 +52,14 @@ jobs:
           aws apprunner update-service \
             --service-arn "$APP_RUNNER_SERVICE_ARN" \
             --source-configuration "{
-              \"imageRepository\": {
-                \"imageIdentifier\": \"$IMAGE_URI\",
-                \"imageRepositoryType\": \"ECR\",
-                \"imageConfiguration\": {
-                  \"port\": \"8000\"
+              \"ImageRepository\": {
+                \"ImageIdentifier\": \"$IMAGE_URI\",
+                \"ImageRepositoryType\": \"ECR\",
+                \"ImageConfiguration\": {
+                  \"Port\": \"8000\"
                 }
               },
-              \"autoDeploymentsEnabled\": false
+              \"AutoDeploymentsEnabled\": false
             }"
 
       - name: Wait for App Runner deployment
