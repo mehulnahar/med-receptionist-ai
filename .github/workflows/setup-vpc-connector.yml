@@ -77,8 +77,18 @@ jobs:
       - name: Update App Runner service with VPC connector
         run: |
           VC_ARN="${{ steps.vpc-connector.outputs.vc_arn }}"
-          echo "Attaching VPC connector $VC_ARN to App Runner..."
+          echo "Waiting for App Runner to be RUNNING before attaching VPC connector..."
+          for i in $(seq 1 30); do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn "$APP_RUNNER_SERVICE_ARN" \
+              --region $AWS_REGION \
+              --query 'Service.Status' --output text)
+            echo "  Status: $STATUS (attempt $i/30)"
+            [ "$STATUS" = "RUNNING" ] && break
+            sleep 20
+          done
 
+          echo "Attaching VPC connector $VC_ARN to App Runner..."
           aws apprunner update-service \
             --service-arn "$APP_RUNNER_SERVICE_ARN" \
             --network-configuration "{\"EgressConfiguration\":{\"EgressType\":\"VPC\",\"VpcConnectorArn\":\"$VC_ARN\"}}" \
