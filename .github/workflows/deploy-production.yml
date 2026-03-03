@@ -51,7 +51,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
           DATABASE_URL_SYNC: ${{ secrets.DATABASE_URL_SYNC_PROD }}
           JWT_SECRET: ${{ secrets.JWT_SECRET_PROD }}
-          VITE_API_URL: ${{ secrets.VITE_API_URL_PROD }}
+          APP_URL_PROD: ${{ secrets.VITE_API_URL_PROD }}
+          CORS_ORIGINS_PROD: ${{ secrets.CORS_ORIGINS_PROD }}
         run: |
           python3 - <<'PYEOF'
           import json, os
@@ -66,8 +67,8 @@ jobs:
                   "DATABASE_URL_SYNC": os.environ["DATABASE_URL_SYNC"],
                   "JWT_SECRET": os.environ["JWT_SECRET"],
                   "APP_ENV": "production",
-                  "CORS_ORIGINS": os.environ["VITE_API_URL"],
-                  "APP_URL": os.environ["VITE_API_URL"],
+                  "CORS_ORIGINS": os.environ["CORS_ORIGINS_PROD"],
+                  "APP_URL": os.environ["APP_URL_PROD"],
                 }
               }
             },
