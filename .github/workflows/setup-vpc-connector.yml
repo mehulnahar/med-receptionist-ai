@@ -21,30 +21,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get VPC subnets
-        id: subnets
+      - name: Create VPC connector and attach to App Runner
+        id: vpc-connector
         run: |
-          SUBNETS=$(aws ec2 describe-subnets \
+          # Get subnets inline (avoid GITHUB_OUTPUT multi-value issues)
+          mapfile -t SUBNET_IDS < <(aws ec2 describe-subnets \
             --filters "Name=vpc-id,Values=$VPC_ID" \
             --region $AWS_REGION \
             --query "Subnets[*].SubnetId" \
-            --output text | tr '\t' ' ')
-          echo "subnets=$SUBNETS" >> $GITHUB_OUTPUT
-          echo "Found subnets: $SUBNETS"
+            --output text | tr '\t' '\n' | grep -v '^$')
+          echo "Found subnets: ${SUBNET_IDS[@]}"
 
-      - name: Create or get security group for VPC connector
-        id: sg
-        run: |
-          # Try to create; if it already exists, fetch it
+          # Create or get security group
           SG_ID=$(aws ec2 create-security-group \
             --group-name ar-connector-sg \
-            --description "App Runner VPC connector - allows RDS access" \
+            --description "App Runner VPC connector" \
             --vpc-id $VPC_ID \
             --region $AWS_REGION \
             --query GroupId \
             --output text 2>/dev/null) || true
 
-          if [ -z "$SG_ID" ] || echo "$SG_ID" | grep -q "error"; then
+          if [ -z "$SG_ID" ] || [[ "$SG_ID" == *"error"* ]]; then
             SG_ID=$(aws ec2 describe-security-groups \
               --filters \
                 "Name=group-name,Values=ar-connector-sg" \
@@ -53,28 +50,20 @@ jobs:
               --query "SecurityGroups[0].GroupId" \
               --output text)
           fi
-
-          echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
           echo "Security group: $SG_ID"
 
-      - name: Create or get VPC connector
-        id: vpc-connector
-        run: |
-          SUBNETS="${{ steps.subnets.outputs.subnets }}"
-          SG="${{ steps.sg.outputs.sg_id }}"
-
-          # Check if a connector with this name already exists (idempotent)
+          # Check if connector already exists (idempotent)
           VC_ARN=$(aws apprunner list-vpc-connectors \
             --region $AWS_REGION \
             --query "VpcConnectors[?VpcConnectorName=='med-receptionist-vpc' && Status=='ACTIVE'].VpcConnectorArn | [0]" \
             --output text)
 
           if [ -z "$VC_ARN" ] || [ "$VC_ARN" = "None" ] || [ "$VC_ARN" = "null" ]; then
-            echo "Creating new VPC connector..."
+            echo "Creating new VPC connector with subnets: ${SUBNET_IDS[@]}"
             VC_ARN=$(aws apprunner create-vpc-connector \
               --vpc-connector-name med-receptionist-vpc \
-              --subnets $SUBNETS \
-              --security-groups $SG \
+              --subnets "${SUBNET_IDS[@]}" \
+              --security-groups "$SG_ID" \
               --region $AWS_REGION \
               --query "VpcConnector.VpcConnectorArn" \
               --output text)
