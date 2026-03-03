@@ -48,19 +48,38 @@ jobs:
       - name: Deploy to App Runner
         env:
           IMAGE_URI: ${{ steps.build.outputs.image }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+          DATABASE_URL_SYNC: ${{ secrets.DATABASE_URL_SYNC_PROD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET_PROD }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL_PROD }}
         run: |
+          python3 - <<'PYEOF'
+          import json, os
+          cfg = {
+            "ImageRepository": {
+              "ImageIdentifier": os.environ["IMAGE_URI"],
+              "ImageRepositoryType": "ECR",
+              "ImageConfiguration": {
+                "Port": "8000",
+                "RuntimeEnvironmentVariables": {
+                  "DATABASE_URL": os.environ["DATABASE_URL"],
+                  "DATABASE_URL_SYNC": os.environ["DATABASE_URL_SYNC"],
+                  "JWT_SECRET": os.environ["JWT_SECRET"],
+                  "APP_ENV": "production",
+                  "CORS_ORIGINS": os.environ["VITE_API_URL"],
+                  "APP_URL": os.environ["VITE_API_URL"],
+                }
+              }
+            },
+            "AutoDeploymentsEnabled": False
+          }
+          with open("/tmp/ar_src.json", "w") as f:
+            json.dump(cfg, f)
+          print("source-config written")
+          PYEOF
           aws apprunner update-service \
             --service-arn "$APP_RUNNER_SERVICE_ARN" \
-            --source-configuration "{
-              \"ImageRepository\": {
-                \"ImageIdentifier\": \"$IMAGE_URI\",
-                \"ImageRepositoryType\": \"ECR\",
-                \"ImageConfiguration\": {
-                  \"Port\": \"8000\"
-                }
-              },
-              \"AutoDeploymentsEnabled\": false
-            }"
+            --source-configuration file:///tmp/ar_src.json
 
       - name: Wait for App Runner deployment
         run: |
