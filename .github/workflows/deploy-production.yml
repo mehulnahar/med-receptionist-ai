@@ -3,6 +3,9 @@ name: Deploy to Production (AWS)
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.github/workflows/setup-vpc-connector.yml'
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
