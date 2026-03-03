@@ -1,0 +1,133 @@
+name: One-Time Setup — App Runner VPC Connector
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+env:
+  AWS_REGION: us-east-1
+  VPC_ID: vpc-0d1fd0ba90c2b9a31
+  APP_RUNNER_SERVICE_ARN: ${{ secrets.APP_RUNNER_SERVICE_ARN }}
+
+jobs:
+  setup-vpc-connector:
+    name: Create VPC Connector & Connect App Runner to RDS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get VPC subnets
+        id: subnets
+        run: |
+          SUBNETS=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+            --region $AWS_REGION \
+            --query "Subnets[*].SubnetId" \
+            --output text | tr '\t' ' ')
+          echo "subnets=$SUBNETS" >> $GITHUB_OUTPUT
+          echo "Found subnets: $SUBNETS"
+
+      - name: Create or get security group for VPC connector
+        id: sg
+        run: |
+          # Try to create; if it already exists, fetch it
+          SG_ID=$(aws ec2 create-security-group \
+            --group-name ar-connector-sg \
+            --description "App Runner VPC connector - allows RDS access" \
+            --vpc-id $VPC_ID \
+            --region $AWS_REGION \
+            --query GroupId \
+            --output text 2>/dev/null) || true
+
+          if [ -z "$SG_ID" ] || echo "$SG_ID" | grep -q "error"; then
+            SG_ID=$(aws ec2 describe-security-groups \
+              --filters \
+                "Name=group-name,Values=ar-connector-sg" \
+                "Name=vpc-id,Values=$VPC_ID" \
+              --region $AWS_REGION \
+              --query "SecurityGroups[0].GroupId" \
+              --output text)
+          fi
+
+          echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
+          echo "Security group: $SG_ID"
+
+      - name: Create or get VPC connector
+        id: vpc-connector
+        run: |
+          SUBNETS="${{ steps.subnets.outputs.subnets }}"
+          SG="${{ steps.sg.outputs.sg_id }}"
+
+          # Check if a connector with this name already exists (idempotent)
+          VC_ARN=$(aws apprunner list-vpc-connectors \
+            --region $AWS_REGION \
+            --query "VpcConnectors[?VpcConnectorName=='med-receptionist-vpc' && Status=='ACTIVE'].VpcConnectorArn | [0]" \
+            --output text)
+
+          if [ -z "$VC_ARN" ] || [ "$VC_ARN" = "None" ] || [ "$VC_ARN" = "null" ]; then
+            echo "Creating new VPC connector..."
+            VC_ARN=$(aws apprunner create-vpc-connector \
+              --vpc-connector-name med-receptionist-vpc \
+              --subnets $SUBNETS \
+              --security-groups $SG \
+              --region $AWS_REGION \
+              --query "VpcConnector.VpcConnectorArn" \
+              --output text)
+          else
+            echo "Reusing existing VPC connector"
+          fi
+
+          echo "vc_arn=$VC_ARN" >> $GITHUB_OUTPUT
+          echo "✅ VPC Connector ARN: $VC_ARN"
+
+      - name: Update App Runner service with VPC connector
+        run: |
+          VC_ARN="${{ steps.vpc-connector.outputs.vc_arn }}"
+          echo "Attaching VPC connector $VC_ARN to App Runner..."
+
+          aws apprunner update-service \
+            --service-arn "$APP_RUNNER_SERVICE_ARN" \
+            --network-configuration "{\"EgressConfiguration\":{\"EgressType\":\"VPC\",\"VpcConnectorArn\":\"$VC_ARN\"}}" \
+            --region $AWS_REGION \
+            --query "Service.Status" \
+            --output text
+
+      - name: Wait for App Runner to stabilize
+        run: |
+          echo "Waiting for App Runner service to update..."
+          for i in $(seq 1 40); do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn "$APP_RUNNER_SERVICE_ARN" \
+              --region $AWS_REGION \
+              --query 'Service.Status' --output text)
+            echo "  Status: $STATUS (attempt $i/40)"
+            if [ "$STATUS" = "RUNNING" ]; then
+              echo "✅ App Runner is RUNNING with VPC connector!"
+              exit 0
+            elif [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+              echo "❌ Service failed: $STATUS"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "❌ Timeout — check App Runner console"
+          exit 1
+
+      - name: Verify DB connectivity via health endpoint
+        run: |
+          echo "Checking health endpoint..."
+          sleep 10
+          HEALTH=$(curl -sf https://tfvkhr8rqb.us-east-1.awsapprunner.com/api/health || echo "unreachable")
+          echo "Health response: $HEALTH"
+          if echo "$HEALTH" | grep -q '"database":"ok"'; then
+            echo "✅ Database connection confirmed!"
+          elif echo "$HEALTH" | grep -q '"database":"unavailable"'; then
+            echo "⚠️  DB still unavailable — may need RDS security group to allow ar-connector-sg"
+          else
+            echo "ℹ️  Response: $HEALTH"
+          fi
