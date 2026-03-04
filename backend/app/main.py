@@ -449,6 +449,7 @@ async def _sync_admin_passwords():
     """
     import os
     import bcrypt
+    from sqlalchemy import text
     from app.database import AsyncSessionLocal
 
     admin_pw = os.environ.get("ADMIN_PASSWORD", "")
