@@ -423,6 +423,58 @@ async def _run_startup_migrations():
         except Exception:
             await session.rollback()
 
+        # Add is_active column to practices table (used by batch eligibility loop)
+        try:
+            await session.execute(text(
+                "ALTER TABLE practices ADD COLUMN IF NOT EXISTS "
+                "is_active BOOLEAN NOT NULL DEFAULT TRUE"
+            ))
+            await session.commit()
+            logger.info("startup_migrations: practices.is_active column ensured")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("startup_migrations: practices.is_active skipped: %s", e)
+
+
+async def _sync_admin_passwords():
+    """Sync admin/secretary passwords from env vars.
+
+    If ADMIN_PASSWORD or SECRETARY_PASSWORD env vars are set, update the
+    corresponding user's password hash on every startup. This ensures
+    consistent credentials across all environments (AWS, Railway, etc.)
+    without hardcoding passwords in code.
+
+    Runs AFTER seed_database() so users are guaranteed to exist.
+    """
+    import os
+    from app.database import AsyncSessionLocal
+    from app.services.auth_service import hash_password as _hash_password
+
+    credentials = [
+        ("admin@mindcrew.tech", os.environ.get("ADMIN_PASSWORD")),
+        ("jennie@stefanides.com", os.environ.get("SECRETARY_PASSWORD")),
+    ]
+
+    for email, password in credentials:
+        if not password:
+            continue
+        try:
+            hashed = await _hash_password(password)
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    text(
+                        "UPDATE users SET hashed_password = :pw, "
+                        "password_change_required = FALSE "
+                        "WHERE email = :email"
+                    ),
+                    {"pw": hashed, "email": email},
+                )
+                await session.commit()
+                if result.rowcount > 0:
+                    logger.info("startup_migrations: synced password for %s", email)
+        except Exception as e:
+            logger.warning("startup_migrations: password sync for %s skipped: %s", email, e)
+
 
 async def _reminder_check_loop():
     """Background loop that processes pending appointment reminders every 60 seconds.
@@ -575,6 +627,12 @@ async def lifespan(app: FastAPI):
         await seed_database()
     except Exception as exc:
         logger.warning("Seed skipped or failed: %s", exc)
+
+    # Sync admin/secretary passwords from env vars (after seed ensures users exist)
+    try:
+        await _sync_admin_passwords()
+    except Exception as exc:
+        logger.warning("Password sync skipped: %s", exc)
 
     # Start background reminder scheduler
     reminder_task = asyncio.create_task(_reminder_check_loop())
