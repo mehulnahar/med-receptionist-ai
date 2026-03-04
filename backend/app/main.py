@@ -445,21 +445,31 @@ async def _sync_admin_passwords():
     without hardcoding passwords in code.
 
     Runs AFTER seed_database() so users are guaranteed to exist.
+    Uses synchronous bcrypt (same as seed.py) to avoid asyncio.to_thread issues.
     """
     import os
+    import bcrypt
     from app.database import AsyncSessionLocal
-    from app.services.auth_service import hash_password as _hash_password
+
+    admin_pw = os.environ.get("ADMIN_PASSWORD", "")
+    sec_pw = os.environ.get("SECRETARY_PASSWORD", "")
+    logger.info(
+        "startup_migrations: password sync — ADMIN_PASSWORD set=%s, SECRETARY_PASSWORD set=%s",
+        bool(admin_pw), bool(sec_pw),
+    )
 
     credentials = [
-        ("admin@mindcrew.tech", os.environ.get("ADMIN_PASSWORD")),
-        ("jennie@stefanides.com", os.environ.get("SECRETARY_PASSWORD")),
+        ("admin@mindcrew.tech", admin_pw),
+        ("jennie@stefanides.com", sec_pw),
     ]
 
     for email, password in credentials:
         if not password:
+            logger.warning("startup_migrations: no password env var for %s, skipping", email)
             continue
         try:
-            hashed = await _hash_password(password)
+            # Use synchronous bcrypt (same approach as seed.py) — avoids asyncio.to_thread issues
+            hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     text(
@@ -470,10 +480,12 @@ async def _sync_admin_passwords():
                     {"pw": hashed, "email": email},
                 )
                 await session.commit()
-                if result.rowcount > 0:
-                    logger.info("startup_migrations: synced password for %s", email)
+                logger.info(
+                    "startup_migrations: password sync for %s — rowcount=%d",
+                    email, result.rowcount,
+                )
         except Exception as e:
-            logger.warning("startup_migrations: password sync for %s skipped: %s", email, e)
+            logger.warning("startup_migrations: password sync for %s failed: %s", email, e)
 
 
 async def _reminder_check_loop():
