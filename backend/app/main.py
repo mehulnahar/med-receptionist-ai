@@ -463,7 +463,7 @@ async def _sync_admin_passwords():
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     text(
-                        "UPDATE users SET hashed_password = :pw, "
+                        "UPDATE users SET password_hash = :pw, "
                         "password_change_required = FALSE "
                         "WHERE email = :email"
                     ),
