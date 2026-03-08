@@ -15,7 +15,7 @@ Message types handled:
 
 Security:
 - HMAC signature verification via X-Vapi-Signature header when VAPI_WEBHOOK_SECRET is set
-- Always returns 200 (even on errors) to prevent Vapi retries that cause bad UX
+- Returns 401 for auth failures, 400 for malformed payloads, 200 for all dispatched events
 - Multi-tenant: resolves practice from the call's phone number (no unsafe fallback)
 """
 
@@ -246,7 +246,7 @@ async def vapi_webhook(
     Receive ALL Vapi webhook events and dispatch by message type.
 
     Verifies HMAC signature if VAPI_WEBHOOK_SECRET is configured.
-    Always returns 200 to prevent Vapi retries.
+    Returns 401 for auth failures, 400 for malformed payloads, 200 for dispatched events.
     """
     # ------------------------------------------------------------------
     # 0. Reject oversized payloads before any processing (DoS protection)
@@ -264,10 +264,8 @@ async def vapi_webhook(
     vapi_secret = request.headers.get("x-vapi-secret")
 
     if not _verify_vapi_signature(raw_body, signature, vapi_secret):
-        logger.warning("vapi_webhook: signature verification failed — dropping request")
-        # Return 200 to avoid leaking whether the endpoint exists or accepts traffic.
-        # Returning 401/403 lets attackers enumerate valid webhook URLs.
-        return JSONResponse(status_code=200, content={})
+        logger.warning("vapi_webhook: signature verification failed — rejecting request")
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
 
     # ------------------------------------------------------------------
     # 1. Parse raw body (for logging) then as typed schema
@@ -276,7 +274,7 @@ async def vapi_webhook(
         body = json.loads(raw_body)
     except Exception:
         logger.error("vapi_webhook: failed to parse JSON body (length=%d)", len(raw_body))
-        return JSONResponse(status_code=200, content={})
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
 
     logger.info(
         "vapi_webhook: received type=%s",
@@ -302,7 +300,7 @@ async def vapi_webhook(
             _safe_get(body, "message", "type", default="unknown"),
             list(body.keys()),
         )
-        return JSONResponse(status_code=200, content={})
+        return JSONResponse(status_code=400, content={"error": "Invalid webhook payload"})
 
     # ------------------------------------------------------------------
     # 2. Extract common fields
