@@ -15,6 +15,8 @@ import {
   PhoneOff,
   PhoneForwarded,
   PhoneIncoming,
+  FileText,
+  Loader2,
 } from 'lucide-react'
 import { format, isToday, parseISO, formatDistanceToNow } from 'date-fns'
 import clsx from 'clsx'
@@ -131,6 +133,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [updatingStatusId, setUpdatingStatusId] = useState(null)
 
   // Call stats & callbacks state
   const [callStats, setCallStats] = useState(null)
@@ -301,6 +304,23 @@ export default function Dashboard() {
     fetchAppointments(true)
     fetchCallStats()
     fetchCallbacks()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Appointment status change handler
+  // ---------------------------------------------------------------------------
+
+  const handleStatusChange = async (appointmentId, newStatus) => {
+    setUpdatingStatusId(appointmentId)
+    try {
+      await api.patch(`/appointments/${appointmentId}/status`, { status: newStatus })
+      // Refresh appointments list to reflect the change
+      fetchAppointments(true)
+    } catch (err) {
+      console.error('Failed to update appointment status:', err)
+    } finally {
+      setUpdatingStatusId(null)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -644,6 +664,9 @@ export default function Dashboard() {
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">
                     Booked By
                   </th>
+                  <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -701,6 +724,37 @@ export default function Dashboard() {
                       <span className="text-sm text-gray-600">
                         {appt.booked_by || '--'}
                       </span>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-5 py-3.5 whitespace-nowrap text-center">
+                      {updatingStatusId === appt.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-gray-400 mx-auto" />
+                      ) : appt.status === 'booked' ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleStatusChange(appt.id, 'confirmed')
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 transition-colors"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Mark Confirmed
+                        </button>
+                      ) : appt.status === 'confirmed' ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleStatusChange(appt.id, 'entered_in_ehr')
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 hover:bg-purple-100 transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          Mark In EHR
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">--</span>
+                      )}
                     </td>
                   </tr>
                 ))}

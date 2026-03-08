@@ -1140,6 +1140,7 @@ export default function Patients() {
   // Search state
   const [nameQuery, setNameQuery] = useState('')
   const [phoneQuery, setPhoneQuery] = useState('')
+  const [dobQuery, setDobQuery] = useState('')
   const [activeSearch, setActiveSearch] = useState(false)
 
   // Data state
@@ -1169,7 +1170,7 @@ export default function Patients() {
    * Search patients from the API.
    */
   const searchPatients = useCallback(
-    async (name, phone) => {
+    async (name, phone, dob) => {
       setLoading(true)
       setError(null)
 
@@ -1186,6 +1187,9 @@ export default function Patients() {
         }
         if (phone.trim()) {
           params.phone = phone.trim()
+        }
+        if (dob.trim()) {
+          params.dob = dob.trim()
         }
 
         const res = await api.get('/patients/search', { params })
@@ -1213,13 +1217,14 @@ export default function Patients() {
 
   function handleSearch(e) {
     e.preventDefault()
-    if (!nameQuery.trim() && !phoneQuery.trim()) return
-    searchPatients(nameQuery, phoneQuery)
+    if (!nameQuery.trim() && !phoneQuery.trim() && !dobQuery.trim()) return
+    searchPatients(nameQuery, phoneQuery, dobQuery)
   }
 
   function handleClearSearch() {
     setNameQuery('')
     setPhoneQuery('')
+    setDobQuery('')
     setPatients([])
     setTotal(0)
     setActiveSearch(false)
@@ -1231,14 +1236,14 @@ export default function Patients() {
     setFeedback({ type: 'success', message: 'Patient created successfully!' })
     // Re-run search if active, to show the new patient
     if (activeSearch) {
-      searchPatients(nameQuery, phoneQuery)
+      searchPatients(nameQuery, phoneQuery, dobQuery)
     }
   }
 
   function handlePatientUpdated() {
     // Re-run search to refresh the list
     if (activeSearch) {
-      searchPatients(nameQuery, phoneQuery)
+      searchPatients(nameQuery, phoneQuery, dobQuery)
     }
   }
 
@@ -1307,11 +1312,23 @@ export default function Patients() {
             />
           </div>
 
+          {/* DOB search */}
+          <div className="relative flex-none w-40">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="date"
+              value={dobQuery}
+              onChange={(e) => setDobQuery(e.target.value)}
+              placeholder="Date of Birth"
+              className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-700 bg-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors"
+            />
+          </div>
+
           {/* Buttons */}
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={loading || (!nameQuery.trim() && !phoneQuery.trim())}
+              disabled={loading || (!nameQuery.trim() && !phoneQuery.trim() && !dobQuery.trim())}
               className={clsx(
                 'inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold',
                 'text-white bg-primary-600 hover:bg-primary-700 active:bg-primary-800',
@@ -1386,7 +1403,7 @@ export default function Patients() {
             <p className="mt-0.5 text-red-600">{error}</p>
           </div>
           <button
-            onClick={() => searchPatients(nameQuery, phoneQuery)}
+            onClick={() => searchPatients(nameQuery, phoneQuery, dobQuery)}
             className="text-red-700 hover:text-red-800 underline text-sm font-medium whitespace-nowrap"
           >
             Try again
