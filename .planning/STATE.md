@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Patients get immediate, intelligent phone service without hold times
-**Current focus:** Phase 3 - Webhook & Call Flow (hardening, status codes, persistence)
+**Current focus:** Phase 4 - Vapi Config Sync (sync dashboard settings to Vapi assistant)
 
 ## Current Position
 
-Phase: 3 of 8 (Webhook & Call Flow) -- COMPLETE
-Plan: 2 of 2 in current phase
-Status: Phase complete
-Last activity: 2026-03-08 — Plan 03-02 complete: 44 webhook call flow tests covering HOOK-01 through HOOK-08
+Phase: 4 of 8 (Vapi Config Sync)
+Plan: 2 of 3 in current phase
+Status: In progress
+Last activity: 2026-03-08 — Plan 04-02 complete: Frontend IntegrationsTab surfaces Vapi sync status with three-state toast feedback
 
-Progress: [████░░░░░░] ~35%
+Progress: [████░░░░░░] ~40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: ~3 min
-- Total execution time: ~19 min
+- Total execution time: ~20 min
 
 **By Phase:**
 
@@ -30,9 +30,10 @@ Progress: [████░░░░░░] ~35%
 | 01-configurable-settings | 2 | ~6 min | ~3 min |
 | 02-schedule-management | 3 | 8 min | ~3 min |
 | 03-webhook-call-flow | 2 | 5 min | ~3 min |
+| 04-vapi-config-sync | 1 (of 3) | 1 min | 1 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-02 (3 min), 02-03 (2 min), 03-01 (2 min), 03-02 (3 min)
+- Last 5 plans: 02-03 (2 min), 03-01 (2 min), 03-02 (3 min), 04-02 (1 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -76,6 +77,8 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [03-02]: Used ASGI TestClient (httpx + ASGITransport) for dispatch tests, not raw mocking
 - [03-02]: Tested _verify_vapi_signature as pure function with mocked get_settings() for isolation
 - [03-02]: Concurrent call safety verified via asyncio.gather with independent mock DB sessions
+- [04-02]: Warning toast auto-dismiss extended to 8s (vs 4s) so admin can read Vapi sync error details
+- [04-02]: Error handler improved to parse Pydantic validation array format (Array.isArray check on detail)
 
 ### Pending Todos
 
@@ -88,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 03-02-PLAN.md (44 webhook call flow tests, all HOOK requirements covered, Phase 3 complete)
+Stopped at: Completed 04-02-PLAN.md (Vapi sync status UI with three-state toast feedback in IntegrationsTab)
 Resume file: None
