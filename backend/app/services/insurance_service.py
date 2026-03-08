@@ -128,7 +128,7 @@ async def _resolve_payer_id_inner(
         )
         return (carrier.stedi_payer_id, carrier.name)
 
-    # --- 2. Check aliases (in-memory comparison) ---
+    # --- Fetch all active carriers (used by steps 1b, 2, and alias matching) ---
     stmt_all = (
         select(InsuranceCarrier)
         .where(
@@ -142,17 +142,38 @@ async def _resolve_payer_id_inner(
     result_all = await db.execute(stmt_all)
     all_carriers = list(result_all.scalars().all())
 
+    # --- 1b. Bidirectional substring match on name (before aliases) ---
+    for c in all_carriers:
+        c_name_lower = c.name.strip().lower() if c.name else ""
+        if len(carrier_lower) >= 4 and c_name_lower and (
+            carrier_lower in c_name_lower or c_name_lower in carrier_lower
+        ):
+            logger.debug(
+                "Payer resolved via name substring match: '%s' -> %s",
+                c.name, c.stedi_payer_id,
+            )
+            return (c.stedi_payer_id, c.name)
+
+    # --- 2. Check aliases (in-memory comparison) ---
     for c in all_carriers:
         aliases = c.aliases or []
         for alias in aliases:
-            if isinstance(alias, str) and alias.strip().lower() == carrier_lower:
-                logger.debug(
-                    "Payer resolved via alias match: '%s' (alias '%s') -> %s",
-                    c.name,
-                    alias,
-                    c.stedi_payer_id,
-                )
-                return (c.stedi_payer_id, c.name)
+            if isinstance(alias, str):
+                alias_lower = alias.strip().lower()
+                # Exact alias match
+                if alias_lower == carrier_lower:
+                    logger.debug(
+                        "Payer resolved via alias match: '%s' (alias '%s') -> %s",
+                        c.name, alias, c.stedi_payer_id,
+                    )
+                    return (c.stedi_payer_id, c.name)
+                # Bidirectional substring: caller says part of alias OR alias is part of carrier
+                if len(carrier_lower) >= 4 and (carrier_lower in alias_lower or alias_lower in carrier_lower):
+                    logger.debug(
+                        "Payer resolved via alias substring match: '%s' (alias '%s') -> %s",
+                        c.name, alias, c.stedi_payer_id,
+                    )
+                    return (c.stedi_payer_id, c.name)
 
     # --- 3. Partial ILIKE match on name ---
     stmt_partial = (
