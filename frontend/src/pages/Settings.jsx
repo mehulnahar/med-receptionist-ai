@@ -94,9 +94,9 @@ const TABS = [
 
 function Toast({ message, type = 'success', onClose }) {
   useEffect(() => {
-    const timer = setTimeout(onClose, 4000)
+    const timer = setTimeout(onClose, type === 'warning' ? 8000 : 4000)
     return () => clearTimeout(timer)
-  }, [onClose])
+  }, [onClose, type])
 
   return (
     <div
@@ -104,11 +104,15 @@ function Toast({ message, type = 'success', onClose }) {
         'flex items-center gap-2.5 rounded-xl px-5 py-3 text-sm font-medium shadow-sm border',
         type === 'success'
           ? 'bg-green-50 border-green-200 text-green-700'
-          : 'bg-red-50 border-red-200 text-red-700'
+          : type === 'warning'
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : 'bg-red-50 border-red-200 text-red-700'
       )}
     >
       {type === 'success' ? (
         <Check className="w-4 h-4 flex-shrink-0" />
+      ) : type === 'warning' ? (
+        <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-500" />
       ) : (
         <AlertCircle className="w-4 h-4 flex-shrink-0" />
       )}
@@ -2552,7 +2556,7 @@ function IntegrationsTab() {
     setVapiSaving(true)
     setVapiToast(null)
     try {
-      await api.put('/practice/config/', {
+      const res = await api.put('/practice/config/', {
         vapi_api_key: vapiForm.vapi_api_key.trim() || undefined,
         vapi_assistant_id: vapiForm.vapi_assistant_id.trim() || undefined,
         vapi_phone_number_id: vapiForm.vapi_phone_number_id.trim() || undefined,
@@ -2563,12 +2567,35 @@ function IntegrationsTab() {
         vapi_first_message: vapiForm.vapi_first_message.trim() || undefined,
         vapi_system_prompt: vapiForm.vapi_system_prompt.trim() || undefined,
       })
-      setVapiToast({ type: 'success', message: 'Vapi settings saved successfully.' })
+
+      const syncStatus = res.data?.vapi_sync_status
+
+      if (syncStatus && !syncStatus.success) {
+        // DB save succeeded but Vapi sync failed — show warning
+        setVapiToast({
+          type: 'warning',
+          message: `Settings saved, but Vapi sync failed: ${syncStatus.error}`,
+        })
+      } else if (syncStatus && syncStatus.success) {
+        // DB save + Vapi sync both succeeded
+        setVapiToast({
+          type: 'success',
+          message: 'Vapi settings saved and synced to assistant.',
+        })
+      } else {
+        // DB save succeeded, no sync was attempted (no syncable fields changed, or no assistant_id)
+        setVapiToast({
+          type: 'success',
+          message: 'Vapi settings saved successfully.',
+        })
+      }
     } catch (err) {
-      setVapiToast({
-        type: 'error',
-        message: err.response?.data?.detail || 'Failed to save Vapi settings.',
-      })
+      // DB save itself failed (network error, validation error, etc.)
+      const detail = err.response?.data?.detail
+      const message = Array.isArray(detail)
+        ? detail.map((e) => e.msg).join('; ')
+        : detail || 'Failed to save Vapi settings.'
+      setVapiToast({ type: 'error', message })
     } finally {
       setVapiSaving(false)
     }
