@@ -1135,11 +1135,16 @@ async def tool_transfer_to_staff(
     db: AsyncSession,
     practice_id: UUID,
     params: dict,
+    vapi_call_id: str | None = None,
+    **kwargs,
 ) -> dict:
     """
     Request a live transfer to office staff.
 
     params: {"reason": str}
+
+    Logs transfer details (reason, caller phone, duration) to the Call record's
+    call_metadata for auditing (XFER-06).
     """
     try:
         reason = params.get("reason", "Caller requested staff transfer")
@@ -1152,6 +1157,24 @@ async def tool_transfer_to_staff(
         config = result.scalar_one_or_none()
 
         if not config or not config.transfer_number:
+            # Log the failed transfer attempt to the Call record
+            if vapi_call_id:
+                try:
+                    call_stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+                    call_result = await db.execute(call_stmt)
+                    call_obj = call_result.scalar_one_or_none()
+                    if call_obj:
+                        existing_meta = call_obj.call_metadata or {}
+                        existing_meta["transfer_log"] = {
+                            "transfer_attempted": True,
+                            "transfer_failed_reason": "no_transfer_number_configured",
+                            "transfer_reason": reason,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                        call_obj.call_metadata = existing_meta
+                except Exception:
+                    logger.warning("tool_transfer_to_staff: failed to log no-number transfer to call %s", vapi_call_id)
+
             return {
                 "transfer": False,
                 "message": (
@@ -1159,6 +1182,25 @@ async def tool_transfer_to_staff(
                     "Please call back during office hours."
                 ),
             }
+
+        # Log the successful transfer to the Call record
+        if vapi_call_id:
+            try:
+                call_stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
+                call_result = await db.execute(call_stmt)
+                call_obj = call_result.scalar_one_or_none()
+                if call_obj:
+                    existing_meta = call_obj.call_metadata or {}
+                    existing_meta["transfer_log"] = {
+                        "transfer_reason": reason,
+                        "caller_phone": call_obj.caller_phone,
+                        "duration_at_transfer": call_obj.duration_seconds,
+                        "transfer_number": config.transfer_number,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                    call_obj.call_metadata = existing_meta
+            except Exception:
+                logger.warning("tool_transfer_to_staff: failed to log transfer to call %s", vapi_call_id)
 
         return {
             "transfer": True,

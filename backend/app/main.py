@@ -853,6 +853,7 @@ from app.routes.onboarding import router as onboarding_router
 from app.routes.hipaa import router as hipaa_router
 from app.routes.roi import router as roi_router
 from app.routes.ehr import router as ehr_router
+from app.routes.twilio_fallback import router as twilio_fallback_router
 from app.voice.twilio_relay import router as voice_router
 
 # Phase 5: Scale & Intelligence
@@ -879,6 +880,7 @@ app.include_router(insurance_router, prefix="/api/practice/insurance-carriers", 
 app.include_router(patients_router, prefix="/api/patients", tags=["Patients"])
 app.include_router(appointments_router, prefix="/api/appointments", tags=["Appointments"])
 app.include_router(webhook_router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(twilio_fallback_router, prefix="/api/webhooks", tags=["Twilio Fallback"])
 app.include_router(insurance_verify_router, prefix="/api/insurance", tags=["Insurance Verification"])
 app.include_router(sms_router, prefix="/api/sms", tags=["SMS Notifications"])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["Feedback Loop"])
