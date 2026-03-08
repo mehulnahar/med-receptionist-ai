@@ -11,17 +11,17 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 
 Phase: 5 of 8 (Call Transfer & Fallback)
 Plan: 2 of 3 in current phase
-Status: Plan 05-02 complete
-Last activity: 2026-03-08 — Plan 05-02 complete: TwiML fallback URL display with copy button in BookingSettingsTab (XFER-01, XFER-04, XFER-05)
+Status: Plan 05-01 complete
+Last activity: 2026-03-08 — Plan 05-01 complete: TwiML fallback endpoint + transfer_to_staff call_metadata logging (XFER-03, XFER-06)
 
 Progress: [██████░░░░] ~55%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: ~2 min
-- Total execution time: ~24 min
+- Total execution time: ~26 min
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [██████░░░░] ~55%
 | 02-schedule-management | 3 | 8 min | ~3 min |
 | 03-webhook-call-flow | 2 | 5 min | ~3 min |
 | 04-vapi-config-sync | 3 | 6 min | ~2 min |
-| 05-call-transfer-fallback | 1 | 1 min | ~1 min |
+| 05-call-transfer-fallback | 2 | 3 min | ~2 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-02 (3 min), 04-01 (2 min), 04-02 (1 min), 04-03 (3 min), 05-02 (1 min)
+- Last 5 plans: 04-01 (2 min), 04-02 (1 min), 04-03 (3 min), 05-02 (1 min), 05-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -89,6 +89,9 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [04-03]: Payload assertions extract from call_args.kwargs["json"] for explicit PATCH body verification
 - [05-02]: Used window.location.origin for URL generation instead of hardcoded domain (works in both dev and prod)
 - [05-02]: Conditional display: URL only shown when fallback_phone_number is set, amber warning otherwise
+- [05-01]: No auth on fallback endpoint -- Twilio must reach it when backend is degraded
+- [05-01]: Added **kwargs to tool_transfer_to_staff for forward compatibility
+- [05-01]: No db.commit() in transfer logging -- caller handles commit
 
 ### Pending Todos
 
@@ -101,5 +104,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 05-02-PLAN.md (TwiML fallback URL display with copy button in BookingSettingsTab)
+Stopped at: Completed 05-01-PLAN.md (TwiML fallback endpoint + transfer logging)
 Resume file: None
