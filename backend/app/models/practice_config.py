@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, ForeignKey, text
+from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, Date, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -53,6 +53,10 @@ class PracticeConfig(Base):
     languages = Column(JSON, default=lambda: ["en"], nullable=False)
     primary_language = Column(String(5), default="en", nullable=False)
     greek_transfer_to_staff = Column(Boolean, default=True, nullable=False)
+
+    # Alternate Fridays
+    alternate_fridays_enabled = Column(Boolean, default=False, nullable=False, server_default=text("false"))
+    alternate_friday_reference_date = Column(Date, nullable=True)
 
     # Slots
     slot_duration_minutes = Column(Integer, default=15, nullable=False)

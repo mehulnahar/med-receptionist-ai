@@ -2,7 +2,7 @@ import re
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 from uuid import UUID
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 _PHONE_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
@@ -58,6 +58,10 @@ class PracticeConfigResponse(BaseModel):
     languages: list[str] = Field(default_factory=lambda: ["en"])
     primary_language: str = "en"
     greek_transfer_to_staff: bool = True
+
+    # Alternate Fridays
+    alternate_fridays_enabled: bool = False
+    alternate_friday_reference_date: date | None = None
 
     # Slots
     slot_duration_minutes: int = 15
@@ -129,6 +133,10 @@ class PracticeConfigUpdate(BaseModel):
     languages: list[str] | None = None
     primary_language: str | None = None
     greek_transfer_to_staff: bool | None = None
+
+    # Alternate Fridays
+    alternate_fridays_enabled: bool | None = None
+    alternate_friday_reference_date: date | None = None
 
     # Slots
     slot_duration_minutes: int | None = Field(None, ge=5, le=120)
