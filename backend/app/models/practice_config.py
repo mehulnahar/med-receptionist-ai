@@ -66,6 +66,12 @@ class PracticeConfig(Base):
     # Transfer
     transfer_number = Column(String(20), nullable=True)
     emergency_message = Column(Text, nullable=True)
+    transfer_message = Column(Text, nullable=True)
+    fallback_phone_number = Column(String(20), nullable=True)
+
+    # Reminders
+    reminder_template_24h = Column(JSON, default=dict, nullable=False)
+    reminder_template_2h = Column(JSON, default=dict, nullable=False)
 
     # SMS
     sms_confirmation_enabled = Column(Boolean, default=True, nullable=False)

@@ -71,6 +71,12 @@ class PracticeConfigResponse(BaseModel):
     # Transfer
     transfer_number: str | None = None
     emergency_message: str | None = None
+    transfer_message: str | None = None
+    fallback_phone_number: str | None = None
+
+    # Reminders
+    reminder_template_24h: dict[str, Any] = Field(default_factory=dict)
+    reminder_template_2h: dict[str, Any] = Field(default_factory=dict)
 
     # SMS
     sms_confirmation_enabled: bool = True
@@ -136,6 +142,12 @@ class PracticeConfigUpdate(BaseModel):
     # Transfer
     transfer_number: str | None = None
     emergency_message: str | None = None
+    transfer_message: str | None = None
+    fallback_phone_number: str | None = None
+
+    # Reminders
+    reminder_template_24h: dict[str, Any] | None = None
+    reminder_template_2h: dict[str, Any] | None = None
 
     # SMS
     sms_confirmation_enabled: bool | None = None
@@ -160,9 +172,34 @@ class PracticeConfigUpdate(BaseModel):
             )
         return v
 
-    @field_validator("transfer_number", "vonage_forwarding_number", "twilio_phone_number")
+    @field_validator("transfer_number", "vonage_forwarding_number", "twilio_phone_number", "fallback_phone_number")
     @classmethod
     def validate_phone_numbers(cls, v: str | None) -> str | None:
         if v is not None and not _PHONE_PATTERN.match(v):
             raise ValueError("Phone number must be in E.164 format, e.g. '+12125551234'")
+        return v
+
+    @field_validator("transfer_message")
+    @classmethod
+    def validate_transfer_message(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("Transfer message cannot be empty")
+        return v
+
+    @field_validator("reminder_template_24h", "reminder_template_2h")
+    @classmethod
+    def validate_reminder_templates(cls, v: dict | None) -> dict | None:
+        if v is None or not v:
+            return v
+        if "en" not in v:
+            raise ValueError("Reminder template must contain at least an 'en' key")
+        for lang, template in v.items():
+            if not isinstance(template, str):
+                raise ValueError(f"Reminder template for '{lang}' must be a string")
+            missing = [p for p in ("{patient_name}", "{date}", "{time}") if p not in template]
+            if missing:
+                raise ValueError(
+                    f"Reminder template for '{lang}' must contain placeholders: "
+                    + ", ".join(missing)
+                )
         return v

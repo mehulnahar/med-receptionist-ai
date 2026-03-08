@@ -169,6 +169,28 @@ async def _seed_practice_config(session: AsyncSession, practice_id) -> None:
             "es": "Gracias por llamar a la oficina del Dr. Stefanides. \u00bfC\u00f3mo puedo ayudarle hoy?",
         },
         emergency_message="If this is a medical emergency, please hang up and call 911.",
+        transfer_message="I'm transferring you to our office staff now. Please hold for just a moment.",
+        reminder_template_24h={
+            "en": (
+                "Hi {patient_name}, this is a reminder of your appointment at {practice_name} on {date} at {time}. "
+                "Reply CONFIRM to confirm, CANCEL to cancel, or RESCHEDULE to reschedule."
+            ),
+            "es": (
+                "Hola {patient_name}, este es un recordatorio de su cita en {practice_name} el {date} a las {time}. "
+                "Responda CONFIRMAR para confirmar, CANCELAR para cancelar, o REPROGRAMAR para reprogramar."
+            ),
+        },
+        reminder_template_2h={
+            "en": (
+                "Hi {patient_name}, this is a reminder that your appointment at {practice_name} is in 2 hours at {time} today. "
+                "Reply CONFIRM to confirm or CANCEL to cancel."
+            ),
+            "es": (
+                "Hola {patient_name}, este es un recordatorio de que su cita en {practice_name} es en 2 horas a las {time} hoy. "
+                "Responda CONFIRMAR para confirmar o CANCELAR para cancelar."
+            ),
+        },
+        fallback_phone_number=None,
         sms_confirmation_template={
             "en": (
                 "Your appointment with Dr. Stefanides is confirmed for {date} at {time}. "
