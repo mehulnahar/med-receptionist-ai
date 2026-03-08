@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 8 of 8 (Dashboard & Demo Readiness)
-Plan: 1 of 4 in current phase -- COMPLETE
+Plan: 2 of 4 in current phase -- COMPLETE
 Status: In progress
-Last activity: 2026-03-08 — Plan 08-01 complete: seed data with practice-specific schedule, carriers, and transfer config
+Last activity: 2026-03-08 — Plan 08-02 complete: appointment status buttons and patient DOB search
 
-Progress: [████████░░] ~85%
+Progress: [█████████░] ~90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
-- Average duration: ~3 min
-- Total execution time: ~42 min
+- Total plans completed: 18
+- Average duration: ~2 min
+- Total execution time: ~44 min
 
 **By Phase:**
 
@@ -34,10 +34,10 @@ Progress: [████████░░] ~85%
 | 05-call-transfer-fallback | 3 | 5 min | ~2 min |
 | 06-appointment-booking | 2 | 7 min | ~4 min |
 | 07-insurance-verification | 2 | 5 min | ~3 min |
-| 08-dashboard-demo-readiness | 1 | 2 min | ~2 min |
+| 08-dashboard-demo-readiness | 2 | 4 min | ~2 min |
 
 **Recent Trend:**
-- Last 5 plans: 06-01 (1 min), 06-02 (6 min), 07-01 (2 min), 07-02 (3 min), 08-01 (2 min)
+- Last 5 plans: 06-02 (6 min), 07-01 (2 min), 07-02 (3 min), 08-01 (2 min), 08-02 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -110,6 +110,8 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [08-01]: Idempotent update-if-missing pattern for stedi_payer_id and transfer_number on seed re-run
 - [08-01]: Regional carriers (MetroPlus, Healthfirst, Fidelis) use placeholder Stedi payer IDs
 - [08-01]: transfer_number set to +16612288584 (second Twilio number from dashboard)
+- [08-02]: Status buttons render contextually: booked shows Mark Confirmed, confirmed shows Mark In EHR, terminal states show no button
+- [08-02]: DOB search uses native HTML date input for automatic YYYY-MM-DD format matching backend expectation
 
 ### Pending Todos
 
@@ -122,5 +124,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 08-01-PLAN.md (seed data with practice-specific schedule, carriers, and transfer config)
+Stopped at: Completed 08-02-PLAN.md (appointment status buttons and patient DOB search)
 Resume file: None
