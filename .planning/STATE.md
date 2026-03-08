@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Patients get immediate, intelligent phone service without hold times
-**Current focus:** Phase 4 - Vapi Config Sync (sync dashboard settings to Vapi assistant)
+**Current focus:** Phase 4 - Vapi Config Sync (COMPLETE)
 
 ## Current Position
 
-Phase: 4 of 8 (Vapi Config Sync)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-03-08 — Plan 04-02 complete: Frontend IntegrationsTab surfaces Vapi sync status with three-state toast feedback
+Phase: 4 of 8 (Vapi Config Sync) -- COMPLETE
+Plan: 3 of 3 in current phase
+Status: Phase complete
+Last activity: 2026-03-08 — Plan 04-03 complete: 18 mock-based async tests for sync_assistant_config (VAPI-06, VAPI-07, VAPI-08)
 
-Progress: [████░░░░░░] ~40%
+Progress: [█████░░░░░] ~50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: ~3 min
-- Total execution time: ~20 min
+- Total execution time: ~23 min
 
 **By Phase:**
 
@@ -30,10 +30,10 @@ Progress: [████░░░░░░] ~40%
 | 01-configurable-settings | 2 | ~6 min | ~3 min |
 | 02-schedule-management | 3 | 8 min | ~3 min |
 | 03-webhook-call-flow | 2 | 5 min | ~3 min |
-| 04-vapi-config-sync | 2 (of 3) | 3 min | ~2 min |
+| 04-vapi-config-sync | 3 | 6 min | ~2 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-03 (2 min), 03-01 (2 min), 03-02 (3 min), 04-02 (1 min)
+- Last 5 plans: 03-01 (2 min), 03-02 (3 min), 04-01 (2 min), 04-02 (1 min), 04-03 (3 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -83,6 +83,9 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [04-01]: Structured error dict {"success": bool, "error": str|None} for frontend display
 - [04-02]: Warning toast auto-dismiss extended to 8s (vs 4s) so admin can read Vapi sync error details
 - [04-02]: Error handler improved to parse Pydantic validation array format (Array.isArray check on detail)
+- [04-03]: Used async side_effect functions for HTTP error simulation (cleaner raise_for_status flow)
+- [04-03]: Concurrent tests use mock_client_cls.side_effect list for true per-call isolation
+- [04-03]: Payload assertions extract from call_args.kwargs["json"] for explicit PATCH body verification
 
 ### Pending Todos
 
@@ -95,5 +98,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Re-executed 04-01-PLAN.md (sync_assistant_config with GET-merge-PATCH, config PUT wired for Vapi sync)
+Stopped at: Completed 04-03-PLAN.md (Phase 4 complete: 18 Vapi config sync tests for VAPI-06/07/08)
 Resume file: None
