@@ -415,6 +415,16 @@ async def tool_book_appointment(
     }
     """
     try:
+        # --- Resolve caller language ---
+        # Priority: explicit param > call record language > default "en"
+        language = params.get("language")
+        if not language and vapi_call_id:
+            call_lang_row = await db.execute(
+                select(Call.language).where(Call.vapi_call_id == vapi_call_id)
+            )
+            language = call_lang_row.scalar_one_or_none() or "en"
+        language = language or "en"
+
         # --- Resolve or create patient ---
         if params.get("patient_id"):
             patient_id = UUID(params["patient_id"])
@@ -448,6 +458,7 @@ async def tool_book_appointment(
                 referring_physician=params.get("referring_physician"),
                 accident_date=accident_date_val,
                 accident_type=params.get("accident_type"),
+                language_preference=language,
             )
             patient_id = patient.id
 
@@ -551,6 +562,7 @@ async def tool_book_appointment(
             "time": appointment.time.strftime("%H:%M"),
             "patient_name": f"{patient.first_name} {patient.last_name}",
             "appointment_type": appt_type.name,
+            "language": language,
             "sms_sent": sms_sent,
             "reminders_scheduled": reminders_scheduled,
         }
