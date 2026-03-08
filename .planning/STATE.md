@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Patients get immediate, intelligent phone service without hold times
-**Current focus:** Phase 5 - Call Transfer & Fallback
+**Current focus:** Phase 6 - Appointment Booking
 
 ## Current Position
 
-Phase: 5 of 8 (Call Transfer & Fallback)
-Plan: 2 of 3 in current phase
-Status: Plan 05-01 complete
-Last activity: 2026-03-08 — Plan 05-01 complete: TwiML fallback endpoint + transfer_to_staff call_metadata logging (XFER-03, XFER-06)
+Phase: 6 of 8 (Appointment Booking)
+Plan: 1 of 2 in current phase
+Status: Executing phase 06
+Last activity: 2026-03-08 — Plan 06-01 complete: wired language preference through booking flow for bilingual SMS
 
-Progress: [██████░░░░] ~55%
+Progress: [███████░░░] ~63%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 13
 - Average duration: ~2 min
-- Total execution time: ~26 min
+- Total execution time: ~29 min
 
 **By Phase:**
 
@@ -31,10 +31,11 @@ Progress: [██████░░░░] ~55%
 | 02-schedule-management | 3 | 8 min | ~3 min |
 | 03-webhook-call-flow | 2 | 5 min | ~3 min |
 | 04-vapi-config-sync | 3 | 6 min | ~2 min |
-| 05-call-transfer-fallback | 2 | 3 min | ~2 min |
+| 05-call-transfer-fallback | 3 | 5 min | ~2 min |
+| 06-appointment-booking | 1 | 1 min | ~1 min |
 
 **Recent Trend:**
-- Last 5 plans: 04-01 (2 min), 04-02 (1 min), 04-03 (3 min), 05-02 (1 min), 05-01 (2 min)
+- Last 5 plans: 04-03 (3 min), 05-02 (1 min), 05-01 (2 min), 05-03 (2 min), 06-01 (1 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -92,6 +93,10 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [05-01]: No auth on fallback endpoint -- Twilio must reach it when backend is degraded
 - [05-01]: Added **kwargs to tool_transfer_to_staff for forward compatibility
 - [05-01]: No db.commit() in transfer logging -- caller handles commit
+- [05-03]: Used side_effect list pattern for sequential DB mocks (config then call lookup)
+- [05-03]: XML validation via xml.etree.ElementTree for TwiML well-formedness checks
+- [06-01]: Three-tier language fallback: params.language > Call.language > default 'en'
+- [06-01]: Language included in booking response dict for downstream tool visibility
 
 ### Pending Todos
 
@@ -104,5 +109,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 05-01-PLAN.md (TwiML fallback endpoint + transfer logging)
+Stopped at: Completed 06-01-PLAN.md (language preference wired through booking flow)
 Resume file: None
