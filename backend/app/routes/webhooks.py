@@ -786,7 +786,8 @@ async def _handle_end_of_call_report(
             vapi_call_id, ended_reason, cost, duration,
         )
 
-        await save_end_of_call_report(
+        # HOOK-03 required fields: recording_url, transcript, summary, structured_data, cost
+        call_record = await save_end_of_call_report(
             db=db,
             vapi_call_id=vapi_call_id,
             transcript=transcript,
@@ -795,40 +796,9 @@ async def _handle_end_of_call_report(
             duration=duration,
             cost=cost,
             ended_reason=ended_reason,
+            structured_data=structured_data,
+            success_evaluation=success_evaluation,
         )
-
-        # Single query to get the call record (reused for structured data,
-        # callback flagging, and feedback loop — avoids 3 redundant SELECTs)
-        stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
-        result = await db.execute(stmt)
-        call_record = result.scalar_one_or_none()
-
-        # Save structured analysis data if available
-        if call_record and (structured_data or success_evaluation):
-            try:
-                if structured_data and isinstance(structured_data, dict):
-                    call_record.structured_data = structured_data
-                    # Extract key fields for quick filtering (truncate to column limits)
-                    if structured_data.get("caller_intent"):
-                        call_record.caller_intent = str(structured_data["caller_intent"])[:50]
-                    if structured_data.get("caller_sentiment"):
-                        call_record.caller_sentiment = str(structured_data["caller_sentiment"])[:20]
-                    if structured_data.get("language"):
-                        lang_map = {"english": "en", "spanish": "es"}
-                        call_record.language = lang_map.get(
-                            structured_data["language"], structured_data["language"][:5]
-                        )
-                if success_evaluation is not None:
-                    call_record.success_evaluation = str(success_evaluation)[:20]
-                await db.flush()
-                logger.info(
-                    "vapi_webhook: saved structured analysis for call %s (intent=%s, sentiment=%s)",
-                    vapi_call_id,
-                    structured_data.get("caller_intent") if structured_data else None,
-                    structured_data.get("caller_sentiment") if structured_data else None,
-                )
-            except Exception as e:
-                logger.warning("vapi_webhook: failed to save structured data: %s", e)
 
         # Auto-flag for callback if call was dropped/missed and we have caller info
         CALLBACK_REASONS = {

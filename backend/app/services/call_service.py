@@ -132,9 +132,20 @@ async def save_end_of_call_report(
     cost: float | None = None,
     ended_reason: str | None = None,
     metadata: dict[str, Any] | None = None,
+    structured_data: dict | None = None,
+    success_evaluation: str | None = None,
 ) -> Call | None:
     """
     Save all end-of-call data to the call record.
+
+    Persists the 5 HOOK-03 required fields:
+      1. recording_url
+      2. transcription (transcript)
+      3. AI summary
+      4. structured_data (caller_intent, caller_sentiment, language)
+      5. cost
+
+    Plus: duration, ended_reason, metadata, success_evaluation.
 
     If duration is not explicitly provided but started_at and ended_at are
     available on the call record, the duration is calculated automatically.
@@ -161,6 +172,22 @@ async def save_end_of_call_report(
         call.outcome = ended_reason
     if metadata is not None:
         call.call_metadata = metadata
+
+    # Save structured analysis data (extracted from Vapi analysisPlan)
+    if structured_data and isinstance(structured_data, dict):
+        call.structured_data = structured_data
+        # Extract key fields for quick filtering (truncate to column limits)
+        if structured_data.get("caller_intent"):
+            call.caller_intent = str(structured_data["caller_intent"])[:50]
+        if structured_data.get("caller_sentiment"):
+            call.caller_sentiment = str(structured_data["caller_sentiment"])[:20]
+        if structured_data.get("language"):
+            lang_map = {"english": "en", "spanish": "es"}
+            call.language = lang_map.get(
+                structured_data["language"], structured_data["language"][:5]
+            )
+    if success_evaluation is not None:
+        call.success_evaluation = str(success_evaluation)[:20]
 
     # Set duration: use explicit value or calculate from timestamps
     if duration is not None:
