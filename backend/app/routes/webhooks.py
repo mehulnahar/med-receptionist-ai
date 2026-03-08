@@ -792,18 +792,18 @@ async def _handle_end_of_call_report(
             try:
                 if structured_data and isinstance(structured_data, dict):
                     call_record.structured_data = structured_data
-                    # Extract key fields for quick filtering
+                    # Extract key fields for quick filtering (truncate to column limits)
                     if structured_data.get("caller_intent"):
-                        call_record.caller_intent = structured_data["caller_intent"]
+                        call_record.caller_intent = str(structured_data["caller_intent"])[:50]
                     if structured_data.get("caller_sentiment"):
-                        call_record.caller_sentiment = structured_data["caller_sentiment"]
+                        call_record.caller_sentiment = str(structured_data["caller_sentiment"])[:20]
                     if structured_data.get("language"):
                         lang_map = {"english": "en", "spanish": "es"}
                         call_record.language = lang_map.get(
                             structured_data["language"], structured_data["language"][:5]
                         )
                 if success_evaluation is not None:
-                    call_record.success_evaluation = str(success_evaluation)
+                    call_record.success_evaluation = str(success_evaluation)[:20]
                 await db.flush()
                 logger.info(
                     "vapi_webhook: saved structured analysis for call %s (intent=%s, sentiment=%s)",
