@@ -13,7 +13,9 @@ from app.models.practice_config import PracticeConfig
 from app.schemas.practice_config import PracticeConfigResponse, PracticeConfigUpdate
 from app.middleware.auth import get_current_user, require_practice_admin, require_any_staff
 from app.services.audit_service import log_audit
+from app.services.vapi_service import sync_assistant_config
 from app.utils.cache import practice_config_cache
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -127,4 +129,36 @@ async def update_practice_config(
         except Exception as e:
             logger.warning("Failed to sync transfer number to Vapi: %s", e)
 
-    return PracticeConfigResponse.model_validate(config)
+    # ── Vapi config sync (prompt, voice, model, greeting) ──
+    VAPI_SYNC_FIELDS = {
+        "vapi_system_prompt", "vapi_first_message",
+        "vapi_model_provider", "vapi_model_name",
+        "vapi_voice_provider", "vapi_voice_id",
+    }
+    vapi_fields_changed = VAPI_SYNC_FIELDS & set(update_data.keys())
+    sync_result = None
+
+    if vapi_fields_changed and config.vapi_assistant_id:
+        _settings = get_settings()
+        api_key = config.vapi_api_key or _settings.VAPI_API_KEY
+        if api_key:
+            sync_result = await sync_assistant_config(
+                assistant_id=config.vapi_assistant_id,
+                vapi_api_key=config.vapi_api_key,
+                system_prompt=update_data.get("vapi_system_prompt"),
+                first_message=update_data.get("vapi_first_message"),
+                model_provider=update_data.get("vapi_model_provider"),
+                model_name=update_data.get("vapi_model_name"),
+                voice_provider=update_data.get("vapi_voice_provider"),
+                voice_id=update_data.get("vapi_voice_id"),
+            )
+            if sync_result and not sync_result["success"]:
+                logger.warning(
+                    "Vapi sync failed for practice %s: %s",
+                    config.practice_id, sync_result["error"],
+                )
+
+    response = PracticeConfigResponse.model_validate(config)
+    if vapi_fields_changed and sync_result:
+        response.vapi_sync_status = sync_result
+    return response

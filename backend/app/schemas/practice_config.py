@@ -99,6 +99,9 @@ class PracticeConfigResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Dynamic — populated by PUT endpoint after Vapi sync attempt (not stored in DB)
+    vapi_sync_status: dict | None = None
+
     model_config = {"from_attributes": True}
 
 

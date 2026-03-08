@@ -3,7 +3,7 @@ Vapi Assistant Management Service.
 
 Handles updates to the Vapi assistant configuration, including:
 - Syncing transfer number when practice config changes
-- Future: syncing system prompt, voice settings, etc.
+- Syncing system prompt, voice, model, and greeting via sync_assistant_config
 """
 
 import logging
@@ -141,3 +141,138 @@ async def update_assistant_transfer_number(
             assistant_id, e,
         )
         return False
+
+
+async def sync_assistant_config(
+    assistant_id: str,
+    vapi_api_key: str | None = None,
+    *,
+    system_prompt: str | None = None,
+    first_message: str | None = None,
+    model_provider: str | None = None,
+    model_name: str | None = None,
+    voice_provider: str | None = None,
+    voice_id: str | None = None,
+) -> dict:
+    """
+    Sync practice config fields to the Vapi assistant via GET-merge-PATCH.
+
+    Accepts per-practice vapi_api_key, falling back to the global VAPI_API_KEY.
+    Only fields explicitly provided (not None) are synced.
+
+    Returns {"success": bool, "error": str | None}.
+    """
+    api_key = vapi_api_key or settings.VAPI_API_KEY
+    if not api_key or not assistant_id:
+        return {
+            "success": False,
+            "error": "Vapi API key or assistant ID not configured",
+        }
+
+    # Check if any field was actually provided
+    has_model_fields = any(v is not None for v in (system_prompt, model_provider, model_name))
+    has_voice_fields = any(v is not None for v in (voice_provider, voice_id))
+    has_first_message = first_message is not None
+
+    if not has_model_fields and not has_voice_fields and not has_first_message:
+        return {"success": True, "error": None}  # no-op
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=_VAPI_TIMEOUT) as client:
+            # GET current assistant config to merge changes safely
+            get_resp = await client.get(
+                f"https://api.vapi.ai/assistant/{assistant_id}",
+                headers=headers,
+            )
+            get_resp.raise_for_status()
+            current = get_resp.json()
+
+            patch_payload: dict = {}
+
+            # --- Model fields (prompt, provider, model name) ---
+            if has_model_fields:
+                current_model = current.get("model", {})
+                merged_model = {**current_model}
+
+                if system_prompt is not None:
+                    merged_model["messages"] = [
+                        {"role": "system", "content": system_prompt}
+                    ]
+                if model_provider is not None:
+                    merged_model["provider"] = model_provider
+                if model_name is not None:
+                    merged_model["model"] = model_name
+
+                patch_payload["model"] = merged_model
+
+            # --- Voice fields ---
+            if has_voice_fields:
+                current_voice = current.get("voice", {})
+                merged_voice = {**current_voice}
+
+                if voice_provider is not None:
+                    merged_voice["provider"] = voice_provider
+                if voice_id is not None:
+                    merged_voice["voiceId"] = voice_id
+
+                patch_payload["voice"] = merged_voice
+
+            # --- First message ---
+            if has_first_message:
+                patch_payload["firstMessage"] = first_message
+
+            # PATCH the assistant with merged payload
+            patch_resp = await client.patch(
+                f"https://api.vapi.ai/assistant/{assistant_id}",
+                json=patch_payload,
+                headers=headers,
+            )
+            patch_resp.raise_for_status()
+
+        logger.info(
+            "sync_assistant_config: success for assistant %s (fields: %s)",
+            assistant_id, list(patch_payload.keys()),
+        )
+        return {"success": True, "error": None}
+
+    except httpx.HTTPStatusError as e:
+        status_code = e.response.status_code
+        # Try to extract error message from Vapi response body
+        try:
+            body = e.response.json()
+            detail = body.get("message", body.get("error", str(body)))
+        except Exception:
+            detail = e.response.text[:200] if e.response.text else str(e)
+
+        if status_code in (401, 403):
+            msg = "Invalid Vapi API key"
+        elif status_code == 429:
+            msg = "Vapi rate limit exceeded, please try again shortly"
+        elif status_code >= 500:
+            msg = "Vapi service temporarily unavailable"
+        else:
+            msg = f"Vapi API error ({status_code}): {detail}"
+
+        logger.warning(
+            "sync_assistant_config: HTTP %s for assistant %s: %s",
+            status_code, assistant_id, msg,
+        )
+        return {"success": False, "error": msg}
+
+    except httpx.TimeoutException:
+        logger.warning(
+            "sync_assistant_config: timeout for assistant %s", assistant_id,
+        )
+        return {"success": False, "error": "Vapi API request timed out"}
+
+    except Exception as e:
+        logger.exception(
+            "sync_assistant_config: unexpected error for assistant %s: %s",
+            assistant_id, e,
+        )
+        return {"success": False, "error": str(e)}
