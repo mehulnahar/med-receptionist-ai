@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 8 of 8 (Dashboard & Demo Readiness)
-Plan: 2 of 4 in current phase -- COMPLETE
+Plan: 3 of 4 in current phase -- COMPLETE
 Status: In progress
-Last activity: 2026-03-08 — Plan 08-02 complete: appointment status buttons and patient DOB search
+Last activity: 2026-03-08 — Plan 08-03 complete: dashboard and demo readiness tests (32 integration tests)
 
-Progress: [█████████░] ~90%
+Progress: [██████████] ~95%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18
-- Average duration: ~2 min
-- Total execution time: ~44 min
+- Total plans completed: 19
+- Average duration: ~3 min
+- Total execution time: ~57 min
 
 **By Phase:**
 
@@ -34,11 +34,11 @@ Progress: [█████████░] ~90%
 | 05-call-transfer-fallback | 3 | 5 min | ~2 min |
 | 06-appointment-booking | 2 | 7 min | ~4 min |
 | 07-insurance-verification | 2 | 5 min | ~3 min |
-| 08-dashboard-demo-readiness | 2 | 4 min | ~2 min |
+| 08-dashboard-demo-readiness | 3 | 17 min | ~6 min |
 
 **Recent Trend:**
-- Last 5 plans: 06-02 (6 min), 07-01 (2 min), 07-02 (3 min), 08-01 (2 min), 08-02 (2 min)
-- Trend: stable
+- Last 5 plans: 07-01 (2 min), 07-02 (3 min), 08-01 (2 min), 08-02 (2 min), 08-03 (13 min)
+- Trend: spike on integration test suite (expected for ASGI client tests with multiple fix iterations)
 
 *Updated after each plan completion*
 
@@ -112,6 +112,9 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [08-01]: transfer_number set to +16612288584 (second Twilio number from dashboard)
 - [08-02]: Status buttons render contextually: booked shows Mark Confirmed, confirmed shows Mark In EHR, terminal states show no button
 - [08-02]: DOB search uses native HTML date input for automatic YYYY-MM-DD format matching backend expectation
+- [08-03]: ASGI TestClient with FastAPI dependency overrides (not pure unit mocks) for realistic endpoint testing
+- [08-03]: Rate limiter counter clearing in fixtures prevents 429 in full suite runs (shared 127.0.0.1 IP)
+- [08-03]: Save/restore app.dependency_overrides pattern for cross-test isolation in fixture teardown
 
 ### Pending Todos
 
@@ -124,5 +127,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 08-02-PLAN.md (appointment status buttons and patient DOB search)
+Stopped at: Completed 08-03-PLAN.md (32 dashboard demo readiness integration tests)
 Resume file: None
