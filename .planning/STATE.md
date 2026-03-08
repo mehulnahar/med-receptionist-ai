@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Patients get immediate, intelligent phone service without hold times
-**Current focus:** Phase 2 - Schedule Management (alternate Fridays, overrides, availability)
+**Current focus:** Phase 3 - Webhook & Call Flow (hardening, status codes, persistence)
 
 ## Current Position
 
-Phase: 2 of 8 (Schedule Management) -- COMPLETE
-Plan: 3 completed in current phase (3 plans total)
-Status: Phase complete
-Last activity: 2026-03-08 — Plan 02-03 complete: Schedule management tests (34 tests, 4 classes)
+Phase: 3 of 8 (Webhook & Call Flow)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-03-08 — Plan 03-01 complete: Webhook hardening (401/400 status codes, consolidated end-of-call persistence)
 
-Progress: [███░░░░░░░] ~25%
+Progress: [████░░░░░░] ~31%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: ~3 min
-- Total execution time: ~14 min
+- Total execution time: ~16 min
 
 **By Phase:**
 
@@ -29,9 +29,10 @@ Progress: [███░░░░░░░] ~25%
 |-------|-------|-------|----------|
 | 01-configurable-settings | 2 | ~6 min | ~3 min |
 | 02-schedule-management | 3 | 8 min | ~3 min |
+| 03-webhook-call-flow | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (3 min), 02-02 (3 min), 02-03 (2 min)
+- Last 5 plans: 02-01 (3 min), 02-02 (3 min), 02-03 (2 min), 03-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -70,6 +71,8 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [02-02]: Alternate Friday reference date validated client-side with getDay() === 5 check
 - [02-03]: Availability logic tested via _simulate_availability helper mirroring get_available_slots pure logic (no DB mocking)
 - [02-03]: Alternate Friday parity formula tested as standalone helper (formula inline in service, not extracted)
+- [03-01]: Moved structured_data/success_evaluation persistence from webhooks.py into save_end_of_call_report for single-responsibility
+- [03-01]: save_end_of_call_report now returns the Call object (used by callback flagging and feedback loop)
 
 ### Pending Todos
 
@@ -82,5 +85,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 02-03-PLAN.md (Schedule management tests -- Phase 2 complete)
+Stopped at: Completed 03-01-PLAN.md (Webhook hardening -- 401/400 status codes, consolidated persistence)
 Resume file: None
