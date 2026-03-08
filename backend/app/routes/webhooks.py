@@ -57,12 +57,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _verify_vapi_signature(raw_body: bytes, signature_header: str | None) -> bool:
+def _verify_vapi_signature(
+    raw_body: bytes,
+    signature_header: str | None,
+    secret_header: str | None = None,
+) -> bool:
     """
-    Verify the HMAC-SHA256 signature sent by Vapi in the X-Vapi-Signature header.
+    Verify the webhook request came from Vapi.
 
-    Returns True if signature is valid or if no secret is configured (graceful skip).
-    Returns False if a secret is configured but signature is missing or invalid.
+    Accepts two auth mechanisms (tries HMAC first, then simple token):
+      1. X-Vapi-Signature header — HMAC-SHA256 of the raw body (set via credentialId)
+      2. X-Vapi-Secret header    — plain-text secret token (set via server.secret)
+
+    Returns True if auth passes or if no secret is configured (dev-mode skip).
+    Returns False if a secret is configured but neither header is valid.
     """
     settings = get_settings()
     secret = settings.VAPI_WEBHOOK_SECRET
@@ -78,20 +86,29 @@ def _verify_vapi_signature(raw_body: bytes, signature_header: str | None) -> boo
         logger.warning("vapi_webhook: VAPI_WEBHOOK_SECRET not set — skipping signature check (dev mode)")
         return True
 
-    if not signature_header:
-        logger.warning("vapi_webhook: missing X-Vapi-Signature header — rejecting request")
+    # --- Mechanism 1: HMAC-SHA256 via X-Vapi-Signature ---
+    if signature_header:
+        expected = hmac.new(
+            secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        if hmac.compare_digest(expected, signature_header):
+            return True
+        logger.warning("vapi_webhook: HMAC signature mismatch — rejecting request")
         return False
 
-    expected = hmac.new(
-        secret.encode("utf-8"),
-        raw_body,
-        hashlib.sha256,
-    ).hexdigest()
+    # --- Mechanism 2: Simple token via X-Vapi-Secret ---
+    if secret_header:
+        try:
+            if hmac.compare_digest(secret, secret_header):
+                return True
+        except TypeError:
+            pass
+        logger.warning("vapi_webhook: X-Vapi-Secret token mismatch — rejecting request")
+        return False
 
-    if hmac.compare_digest(expected, signature_header):
-        return True
-
-    logger.warning("vapi_webhook: HMAC signature mismatch — rejecting request")
+    logger.warning("vapi_webhook: missing X-Vapi-Signature header — rejecting request")
     return False
 
 
@@ -244,8 +261,9 @@ async def vapi_webhook(
     # 1. Verify webhook signature (if secret is configured)
     # ------------------------------------------------------------------
     signature = request.headers.get("x-vapi-signature")
+    vapi_secret = request.headers.get("x-vapi-secret")
 
-    if not _verify_vapi_signature(raw_body, signature):
+    if not _verify_vapi_signature(raw_body, signature, vapi_secret):
         logger.warning("vapi_webhook: signature verification failed — dropping request")
         # Return 200 to avoid leaking whether the endpoint exists or accepts traffic.
         # Returning 401/403 lets attackers enumerate valid webhook URLs.
