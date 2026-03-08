@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Patients get immediate, intelligent phone service without hold times
-**Current focus:** Phase 7 - Insurance Verification
+**Current focus:** Phase 8 - Dashboard & Demo Readiness
 
 ## Current Position
 
-Phase: 7 of 8 (Insurance Verification) -- COMPLETE
-Plan: 2 of 2 in current phase -- COMPLETE
-Status: Phase complete
-Last activity: 2026-03-08 — Plan 07-02 complete: insurance verification TDD test suite (23 tests)
+Phase: 8 of 8 (Dashboard & Demo Readiness)
+Plan: 1 of 4 in current phase -- COMPLETE
+Status: In progress
+Last activity: 2026-03-08 — Plan 08-01 complete: seed data with practice-specific schedule, carriers, and transfer config
 
-Progress: [████████░░] ~80%
+Progress: [████████░░] ~85%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 17
 - Average duration: ~3 min
-- Total execution time: ~40 min
+- Total execution time: ~42 min
 
 **By Phase:**
 
@@ -34,9 +34,10 @@ Progress: [████████░░] ~80%
 | 05-call-transfer-fallback | 3 | 5 min | ~2 min |
 | 06-appointment-booking | 2 | 7 min | ~4 min |
 | 07-insurance-verification | 2 | 5 min | ~3 min |
+| 08-dashboard-demo-readiness | 1 | 2 min | ~2 min |
 
 **Recent Trend:**
-- Last 5 plans: 05-03 (2 min), 06-01 (1 min), 06-02 (6 min), 07-01 (2 min), 07-02 (3 min)
+- Last 5 plans: 06-01 (1 min), 06-02 (6 min), 07-01 (2 min), 07-02 (3 min), 08-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -106,6 +107,9 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [07-02]: Used 'Terminated' instead of 'Inactive' for negative parse test since parse_eligibility_response substring-matches 'active' in 'Inactive'
 - [07-02]: Tested _resolve_payer_id_inner directly (bypassing asyncio.wait_for wrapper) for deterministic DB mock sequencing
 - [07-02]: Centralized _P_* patch target constants following test_appointment_booking.py pattern for DRY test configuration
+- [08-01]: Idempotent update-if-missing pattern for stedi_payer_id and transfer_number on seed re-run
+- [08-01]: Regional carriers (MetroPlus, Healthfirst, Fidelis) use placeholder Stedi payer IDs
+- [08-01]: transfer_number set to +16612288584 (second Twilio number from dashboard)
 
 ### Pending Todos
 
@@ -118,5 +122,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 07-02-PLAN.md (insurance verification TDD test suite -- Phase 7 complete)
+Stopped at: Completed 08-01-PLAN.md (seed data with practice-specific schedule, carriers, and transfer config)
 Resume file: None
