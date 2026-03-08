@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 
 ## Current Position
 
-Phase: 3 of 8 (Webhook & Call Flow)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-03-08 — Plan 03-01 complete: Webhook hardening (401/400 status codes, consolidated end-of-call persistence)
+Phase: 3 of 8 (Webhook & Call Flow) -- COMPLETE
+Plan: 2 of 2 in current phase
+Status: Phase complete
+Last activity: 2026-03-08 — Plan 03-02 complete: 44 webhook call flow tests covering HOOK-01 through HOOK-08
 
-Progress: [████░░░░░░] ~31%
+Progress: [████░░░░░░] ~35%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: ~3 min
-- Total execution time: ~16 min
+- Total execution time: ~19 min
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [████░░░░░░] ~31%
 |-------|-------|-------|----------|
 | 01-configurable-settings | 2 | ~6 min | ~3 min |
 | 02-schedule-management | 3 | 8 min | ~3 min |
-| 03-webhook-call-flow | 1 | 2 min | 2 min |
+| 03-webhook-call-flow | 2 | 5 min | ~3 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (3 min), 02-02 (3 min), 02-03 (2 min), 03-01 (2 min)
+- Last 5 plans: 02-02 (3 min), 02-03 (2 min), 03-01 (2 min), 03-02 (3 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -73,6 +73,9 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [02-03]: Alternate Friday parity formula tested as standalone helper (formula inline in service, not extracted)
 - [03-01]: Moved structured_data/success_evaluation persistence from webhooks.py into save_end_of_call_report for single-responsibility
 - [03-01]: save_end_of_call_report now returns the Call object (used by callback flagging and feedback loop)
+- [03-02]: Used ASGI TestClient (httpx + ASGITransport) for dispatch tests, not raw mocking
+- [03-02]: Tested _verify_vapi_signature as pure function with mocked get_settings() for isolation
+- [03-02]: Concurrent call safety verified via asyncio.gather with independent mock DB sessions
 
 ### Pending Todos
 
@@ -85,5 +88,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 03-01-PLAN.md (Webhook hardening -- 401/400 status codes, consolidated persistence)
+Stopped at: Completed 03-02-PLAN.md (44 webhook call flow tests, all HOOK requirements covered, Phase 3 complete)
 Resume file: None
