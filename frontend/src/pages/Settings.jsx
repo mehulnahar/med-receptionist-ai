@@ -776,6 +776,43 @@ function BookingSettingsTab() {
       </SectionCard>
 
       <SectionCard
+        title="Twilio Fallback URL"
+        description="Configure this URL in Twilio as the fallback voice URL for your phone number"
+      >
+        <div className="space-y-3">
+          {form.fallback_phone_number ? (
+            <>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 font-mono break-all select-all">
+                  {`${window.location.origin}/api/webhooks/twilio-fallback`}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `${window.location.origin}/api/webhooks/twilio-fallback`
+                    )
+                    setToast({ type: 'success', message: 'Fallback URL copied to clipboard.' })
+                  }}
+                  className="shrink-0 px-3 py-2.5 text-sm font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+                >
+                  Copy
+                </button>
+              </div>
+              <p className="text-xs text-gray-400">
+                Paste this URL into your Twilio phone number's "Voice Fallback URL" field.
+                When the AI system is unreachable, Twilio will call this URL and it will ring your fallback number ({form.fallback_phone_number}).
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              Set a fallback phone number above first. The TwiML fallback URL will appear here once a fallback number is configured.
+            </p>
+          )}
+        </div>
+      </SectionCard>
+
+      <SectionCard
         title="Emergency Message"
         description="Message spoken when a caller describes an emergency situation"
       >
