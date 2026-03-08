@@ -325,6 +325,19 @@ async def get_availability(
         start_time = template.start_time
         end_time = template.end_time
 
+    # ------------------------------------------------------------------
+    # 2b. Alternate Friday check
+    # ------------------------------------------------------------------
+    if date.weekday() == 4:
+        from app.services.booking_service import _get_practice_config as _bsvc_get_config
+        cfg = await _bsvc_get_config(db, practice_id)
+        if getattr(cfg, "alternate_fridays_enabled", False):
+            ref = getattr(cfg, "alternate_friday_reference_date", None)
+            if ref is not None:
+                weeks_diff = abs((date - ref).days // 7)
+                if weeks_diff % 2 != 0:
+                    return AvailabilityResponse(date=date, is_working_day=False, slots=[])
+
     # Guard: if times are missing even though it should be a working day
     if not start_time or not end_time:
         return AvailabilityResponse(

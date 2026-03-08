@@ -190,6 +190,8 @@ async def _get_practice_config(db: AsyncSession, practice_id: UUID) -> PracticeC
         allow_overbooking=config.allow_overbooking,
         max_overbooking_per_slot=config.max_overbooking_per_slot,
         vapi_assistant_id=getattr(config, "vapi_assistant_id", None),
+        alternate_fridays_enabled=getattr(config, "alternate_fridays_enabled", False),
+        alternate_friday_reference_date=getattr(config, "alternate_friday_reference_date", None),
     )
     practice_config_cache.set(cache_key, cached_config)
     return cached_config
@@ -199,11 +201,12 @@ async def _get_schedule_for_date(
     db: AsyncSession,
     practice_id: UUID,
     target_date: date,
+    config=None,
 ) -> tuple[bool, Optional[time], Optional[time]]:
     """
     Determine whether a date is a working day and its start/end times.
     Checks overrides first, then falls back to the weekly template.
-    Also checks the holidays table.
+    Also checks the holidays table and alternate-Friday rules.
 
     Returns (is_working, start_time, end_time).
     """
@@ -247,6 +250,17 @@ async def _get_schedule_for_date(
 
     if not template or not template.is_enabled:
         return (False, None, None)
+
+    # Alternate Friday check: if enabled and this is an "off" Friday, treat as non-working
+    if target_date.weekday() == 4:
+        if config is None:
+            config = await _get_practice_config(db, practice_id)
+        if getattr(config, "alternate_fridays_enabled", False):
+            ref = getattr(config, "alternate_friday_reference_date", None)
+            if ref is not None:
+                weeks_diff = abs((target_date - ref).days // 7)
+                if weeks_diff % 2 != 0:
+                    return (False, None, None)
 
     return (True, template.start_time, template.end_time)
 
@@ -292,13 +306,13 @@ async def get_available_slots(
     4. Count existing non-cancelled appointments per slot.
     5. Apply overbooking rules from practice config.
     """
+    config = await _get_practice_config(db, practice_id)
+
     is_working, start_time, end_time = await _get_schedule_for_date(
-        db, practice_id, target_date
+        db, practice_id, target_date, config=config
     )
     if not is_working or start_time is None or end_time is None:
         return []
-
-    config = await _get_practice_config(db, practice_id)
 
     # Determine slot duration
     slot_duration = config.slot_duration_minutes
@@ -481,6 +495,14 @@ async def find_next_available_slot(
 
         if not is_working or day_start is None or day_end is None:
             continue
+
+        # Alternate Friday check (uses already-fetched config)
+        if check_date.weekday() == 4 and getattr(config, "alternate_fridays_enabled", False):
+            ref = getattr(config, "alternate_friday_reference_date", None)
+            if ref is not None:
+                weeks_diff = abs((check_date - ref).days // 7)
+                if weeks_diff % 2 != 0:
+                    continue
 
         time_slots = _generate_time_slots(day_start, day_end, slot_duration)
         if not time_slots:
