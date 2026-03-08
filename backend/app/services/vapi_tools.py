@@ -632,18 +632,34 @@ async def tool_verify_insurance(
                 ),
             }
 
+        # Robust DOB parsing helper (handles non-ISO formats from Vapi)
+        def _parse_dob_robust(raw: str):
+            """Parse DOB string, trying ISO format first then common alternatives."""
+            try:
+                return _parse_date(raw)
+            except (ValueError, TypeError):
+                from datetime import datetime as _dt
+                for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y%m%d"):
+                    try:
+                        return _dt.strptime(raw, fmt).date()
+                    except ValueError:
+                        continue
+                logger.warning("tool_verify_insurance: unparseable DOB '%s'", raw)
+                return None
+
         # Resolve or create patient for the verification
         patient_id = None
         if params.get("patient_id"):
             patient_id = UUID(params["patient_id"])
         elif first_name and last_name and dob_str:
             # Try to find patient
-            dob = _parse_date(dob_str)
-            patients = await search_patients(
-                db, practice_id, first_name=first_name, last_name=last_name, dob=dob
-            )
-            if patients:
-                patient_id = patients[0].id
+            dob = _parse_dob_robust(dob_str)
+            if dob:
+                patients = await search_patients(
+                    db, practice_id, first_name=first_name, last_name=last_name, dob=dob
+                )
+                if patients:
+                    patient_id = patients[0].id
 
         if not patient_id:
             # Can't verify without a patient record
@@ -658,7 +674,7 @@ async def tool_verify_insurance(
             }
 
         # Parse DOB
-        dob = _parse_date(dob_str) if dob_str else None
+        dob = _parse_dob_robust(dob_str) if dob_str else None
 
         # Determine call_id UUID if we have a vapi_call_id
         call_id = None
@@ -1604,6 +1620,7 @@ TOOL_REGISTRY = {
     "check_availability": tool_check_availability,
     "book_appointment": tool_book_appointment,
     "verify_insurance": tool_verify_insurance,
+    "check_insurance": tool_verify_insurance,        # alias
     "cancel_appointment": tool_cancel_appointment,
     "reschedule_appointment": tool_reschedule_appointment,
     "request_refill": tool_request_refill,
