@@ -30,7 +30,7 @@ Progress: [████░░░░░░] ~40%
 | 01-configurable-settings | 2 | ~6 min | ~3 min |
 | 02-schedule-management | 3 | 8 min | ~3 min |
 | 03-webhook-call-flow | 2 | 5 min | ~3 min |
-| 04-vapi-config-sync | 1 (of 3) | 1 min | 1 min |
+| 04-vapi-config-sync | 2 (of 3) | 3 min | ~2 min |
 
 **Recent Trend:**
 - Last 5 plans: 02-03 (2 min), 03-01 (2 min), 03-02 (3 min), 04-02 (1 min)
@@ -77,6 +77,10 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [03-02]: Used ASGI TestClient (httpx + ASGITransport) for dispatch tests, not raw mocking
 - [03-02]: Tested _verify_vapi_signature as pure function with mocked get_settings() for isolation
 - [03-02]: Concurrent call safety verified via asyncio.gather with independent mock DB sessions
+- [04-01]: GET-merge-PATCH pattern for Vapi sync to avoid clobbering existing tools/model fields
+- [04-01]: Per-practice vapi_api_key with global fallback for multi-tenant support
+- [04-01]: DB save independent of Vapi sync -- config persists even when Vapi API is down
+- [04-01]: Structured error dict {"success": bool, "error": str|None} for frontend display
 - [04-02]: Warning toast auto-dismiss extended to 8s (vs 4s) so admin can read Vapi sync error details
 - [04-02]: Error handler improved to parse Pydantic validation array format (Array.isArray check on detail)
 
@@ -91,5 +95,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 04-02-PLAN.md (Vapi sync status UI with three-state toast feedback in IntegrationsTab)
+Stopped at: Re-executed 04-01-PLAN.md (sync_assistant_config with GET-merge-PATCH, config PUT wired for Vapi sync)
 Resume file: None
