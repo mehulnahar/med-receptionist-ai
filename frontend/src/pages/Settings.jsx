@@ -874,6 +874,21 @@ function ScheduleTab() {
   // schedules: array of { day_of_week: 0-6, is_enabled, start_time, end_time }
   const [schedules, setSchedules] = useState([])
 
+  // Schedule overrides state
+  const [overrides, setOverrides] = useState([])
+  const [overridesLoading, setOverridesLoading] = useState(true)
+  const [overridesError, setOverridesError] = useState(null)
+  const [addingOverride, setAddingOverride] = useState(false)
+  const [showAddOverride, setShowAddOverride] = useState(false)
+  const [deletingOverrideId, setDeletingOverrideId] = useState(null)
+  const [newOverride, setNewOverride] = useState({
+    date: '', is_working: false, start_time: '', end_time: '', reason: '',
+  })
+
+  // Alternate Fridays state
+  const [altFriday, setAltFriday] = useState({ enabled: false, reference_date: '' })
+  const [altFridaySaving, setAltFridaySaving] = useState(false)
+
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -911,6 +926,55 @@ function ScheduleTab() {
     return () => { cancelled = true }
   }, [])
 
+  // Load schedule overrides
+  useEffect(() => {
+    let cancelled = false
+    async function loadOverrides() {
+      setOverridesLoading(true)
+      setOverridesError(null)
+      try {
+        const res = await api.get('/practice/schedule/overrides')
+        const data = res.data.overrides || res.data || []
+        if (!cancelled) {
+          // Sort by date ascending
+          data.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+          setOverrides(data)
+        }
+      } catch (err) {
+        if (!cancelled && err.response?.status !== 401) {
+          setOverridesError(
+            err.response?.data?.detail || 'Failed to load schedule overrides.'
+          )
+        }
+      } finally {
+        if (!cancelled) setOverridesLoading(false)
+      }
+    }
+    loadOverrides()
+    return () => { cancelled = true }
+  }, [])
+
+  // Load alternate Friday config
+  useEffect(() => {
+    let cancelled = false
+    async function loadAltFriday() {
+      try {
+        const res = await api.get('/practice/config/')
+        const cfg = res.data
+        if (!cancelled) {
+          setAltFriday({
+            enabled: cfg.alternate_fridays_enabled || false,
+            reference_date: cfg.alternate_fridays_reference_date || '',
+          })
+        }
+      } catch {
+        // Non-critical — keep defaults
+      }
+    }
+    loadAltFriday()
+    return () => { cancelled = true }
+  }, [])
+
   function updateDay(dayIndex, field, value) {
     setSchedules((prev) =>
       prev.map((s) =>
@@ -932,6 +996,98 @@ function ScheduleTab() {
       })
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleAddOverride() {
+    if (!newOverride.date) {
+      setToast({ type: 'error', message: 'Date is required for schedule override.' })
+      return
+    }
+    if (newOverride.is_working) {
+      if (!newOverride.start_time || !newOverride.end_time) {
+        setToast({ type: 'error', message: 'Start and end times are required for open overrides.' })
+        return
+      }
+      if (newOverride.start_time >= newOverride.end_time) {
+        setToast({ type: 'error', message: 'Start time must be before end time.' })
+        return
+      }
+    }
+    setAddingOverride(true)
+    setToast(null)
+    try {
+      const payload = {
+        date: newOverride.date,
+        is_working: newOverride.is_working,
+        reason: newOverride.reason || null,
+      }
+      if (newOverride.is_working) {
+        payload.start_time = newOverride.start_time
+        payload.end_time = newOverride.end_time
+      }
+      const res = await api.post('/practice/schedule/overrides', payload)
+      const created = res.data
+      setOverrides((prev) =>
+        [...prev, created].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+      )
+      setNewOverride({ date: '', is_working: false, start_time: '', end_time: '', reason: '' })
+      setShowAddOverride(false)
+      setToast({ type: 'success', message: 'Schedule override added.' })
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.detail || 'Failed to add schedule override.',
+      })
+    } finally {
+      setAddingOverride(false)
+    }
+  }
+
+  async function handleDeleteOverride(id) {
+    setDeletingOverrideId(id)
+    setToast(null)
+    try {
+      await api.delete(`/practice/schedule/overrides/${id}`)
+      setOverrides((prev) => prev.filter((o) => o.id !== id))
+      setToast({ type: 'success', message: 'Schedule override removed.' })
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.detail || 'Failed to remove schedule override.',
+      })
+    } finally {
+      setDeletingOverrideId(null)
+    }
+  }
+
+  async function handleSaveAltFriday() {
+    if (altFriday.enabled && !altFriday.reference_date) {
+      setToast({ type: 'error', message: 'Reference date is required when alternate Fridays are enabled.' })
+      return
+    }
+    if (altFriday.enabled && altFriday.reference_date) {
+      const d = new Date(altFriday.reference_date + 'T00:00:00')
+      if (d.getDay() !== 5) {
+        setToast({ type: 'error', message: 'Reference date must be a Friday.' })
+        return
+      }
+    }
+    setAltFridaySaving(true)
+    setToast(null)
+    try {
+      await api.put('/practice/config/', {
+        alternate_fridays_enabled: altFriday.enabled,
+        alternate_fridays_reference_date: altFriday.enabled ? altFriday.reference_date : null,
+      })
+      setToast({ type: 'success', message: 'Alternate Friday settings saved.' })
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.detail || 'Failed to save alternate Friday settings.',
+      })
+    } finally {
+      setAltFridaySaving(false)
     }
   }
 
@@ -1110,8 +1266,248 @@ function ScheduleTab() {
       </SectionCard>
 
       <div className="flex justify-end">
-        <SaveButton saving={saving} onClick={handleSave} />
+        <SaveButton saving={saving} onClick={handleSave} label="Save Weekly Schedule" />
       </div>
+
+      {/* ---- Schedule Overrides ---- */}
+      <SectionCard
+        title="Schedule Overrides"
+        description="Add date-specific overrides for holidays, special hours, or closures"
+      >
+        {overridesLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+            <span className="ml-2 text-sm text-gray-500">Loading overrides...</span>
+          </div>
+        ) : overridesError ? (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <span>{overridesError}</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {overrides.length === 0 && !showAddOverride && (
+              <p className="text-sm text-gray-500 py-2">
+                No schedule overrides configured. Add one for holidays or special hours.
+              </p>
+            )}
+
+            {overrides.map((ov) => (
+              <div
+                key={ov.id}
+                className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {ov.date}
+                    </span>
+                    <span
+                      className={clsx(
+                        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+                        ov.is_working
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-red-100 text-red-700'
+                      )}
+                    >
+                      {ov.is_working ? 'Open' : 'Closed'}
+                    </span>
+                    {ov.is_working && ov.start_time && ov.end_time && (
+                      <span className="text-xs text-gray-500">
+                        {ov.start_time} - {ov.end_time}
+                      </span>
+                    )}
+                  </div>
+                  {ov.reason && (
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">{ov.reason}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteOverride(ov.id)}
+                  disabled={deletingOverrideId === ov.id}
+                  className={clsx(
+                    'p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors',
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                  title="Remove override"
+                >
+                  {deletingOverrideId === ov.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            ))}
+
+            {/* Add override form */}
+            {showAddOverride && (
+              <div className="rounded-lg border border-primary-200 bg-primary-50/30 p-4 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Date *</label>
+                    <input
+                      type="date"
+                      value={newOverride.date}
+                      onChange={(e) =>
+                        setNewOverride((prev) => ({ ...prev, date: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Reason</label>
+                    <input
+                      type="text"
+                      value={newOverride.reason}
+                      onChange={(e) =>
+                        setNewOverride((prev) => ({ ...prev, reason: e.target.value }))
+                      }
+                      placeholder="e.g. Holiday, Staff training"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Toggle
+                    enabled={newOverride.is_working}
+                    onChange={(val) =>
+                      setNewOverride((prev) => ({ ...prev, is_working: val }))
+                    }
+                  />
+                  <span className="text-sm text-gray-700">
+                    {newOverride.is_working ? 'Open (special hours)' : 'Closed'}
+                  </span>
+                </div>
+
+                {newOverride.is_working && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Start time *</label>
+                      <input
+                        type="time"
+                        value={newOverride.start_time}
+                        onChange={(e) =>
+                          setNewOverride((prev) => ({ ...prev, start_time: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">End time *</label>
+                      <input
+                        type="time"
+                        value={newOverride.end_time}
+                        onChange={(e) =>
+                          setNewOverride((prev) => ({ ...prev, end_time: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleAddOverride}
+                    disabled={addingOverride}
+                    className={clsx(
+                      'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white',
+                      'bg-primary-600 hover:bg-primary-700 active:bg-primary-800',
+                      'focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:ring-offset-2',
+                      'transition-colors shadow-sm',
+                      'disabled:opacity-60 disabled:cursor-not-allowed'
+                    )}
+                  >
+                    {addingOverride ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" />
+                    )}
+                    {addingOverride ? 'Adding...' : 'Add Override'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddOverride(false)
+                      setNewOverride({ date: '', is_working: false, start_time: '', end_time: '', reason: '' })
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!showAddOverride && (
+              <button
+                type="button"
+                onClick={() => setShowAddOverride(true)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-600 hover:text-primary-700 transition-colors mt-1"
+              >
+                <Plus className="w-4 h-4" />
+                Add Override
+              </button>
+            )}
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ---- Alternate Fridays ---- */}
+      <SectionCard
+        title="Alternate Fridays"
+        description="Close on every other Friday based on a reference date"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Toggle
+              enabled={altFriday.enabled}
+              onChange={(val) =>
+                setAltFriday((prev) => ({ ...prev, enabled: val }))
+              }
+            />
+            <span className="text-sm text-gray-700">
+              {altFriday.enabled ? 'Alternate Fridays enabled' : 'Alternate Fridays disabled'}
+            </span>
+          </div>
+
+          {altFriday.enabled && (
+            <div className="space-y-3 pl-0.5">
+              <div className="max-w-xs">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Reference Friday *
+                </label>
+                <input
+                  type="date"
+                  value={altFriday.reference_date}
+                  onChange={(e) =>
+                    setAltFriday((prev) => ({ ...prev, reference_date: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500"
+                />
+              </div>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                The office will be <strong>closed</strong> on the reference Friday and every other Friday after it.
+                Weeks with an even number of weeks since the reference date will be closed.
+                You can pick any Friday the office was closed as the reference.
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <SaveButton
+              saving={altFridaySaving}
+              onClick={handleSaveAltFriday}
+              label="Save Alternate Fridays"
+            />
+          </div>
+        </div>
+      </SectionCard>
     </div>
   )
 }
