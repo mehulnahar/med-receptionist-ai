@@ -22,6 +22,7 @@ _VAPI_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 async def update_assistant_transfer_number(
     assistant_id: str,
     transfer_number: Optional[str],
+    transfer_message: Optional[str] = None,
 ) -> bool:
     """
     Update the transferCall tool on a Vapi assistant with a new phone number.
@@ -77,7 +78,7 @@ async def update_assistant_transfer_number(
                         {
                             "type": "number",
                             "number": transfer_number.strip(),
-                            "message": "I'm transferring you to our office staff now. Please hold for just a moment.",
+                            "message": transfer_message or "I'm transferring you to our office staff now. Please hold for just a moment.",
                         }
                     ],
                     "function": {

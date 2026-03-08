@@ -103,6 +103,7 @@ HIGH_PRIORITY_MESSAGE_ES = (
 def detect_urgency(
     transcript: str,
     language: str = "en",
+    emergency_message: Optional[str] = None,
 ) -> TriageResult:
     """Detect urgency level from transcript text.
 
@@ -128,7 +129,10 @@ def detect_urgency(
         match = pattern.search(text_lower)
         if match:
             elapsed_ms = (time.monotonic() - start) * 1000
-            msg = EMERGENCY_MESSAGE_ES if language == "es" else EMERGENCY_MESSAGE_EN
+            if emergency_message:
+                msg = emergency_message
+            else:
+                msg = EMERGENCY_MESSAGE_ES if language == "es" else EMERGENCY_MESSAGE_EN
             logger.warning(
                 "EMERGENCY TRIAGE: keyword='%s' in transcript (%.1fms)",
                 match.group(), elapsed_ms,

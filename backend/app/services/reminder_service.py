@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.appointment import Appointment
 from app.models.patient import Patient
 from app.models.practice import Practice
+from app.models.practice_config import PracticeConfig
 from app.models.reminder import AppointmentReminder
 from app.services.sms_service import (
     get_twilio_credentials,
@@ -32,7 +33,7 @@ MAX_SEND_ATTEMPTS = 3
 # Reminder message templates
 # ---------------------------------------------------------------------------
 
-REMINDER_TEMPLATES = {
+DEFAULT_REMINDER_TEMPLATES = {
     "en": (
         "Hi {patient_name}, this is a reminder of your appointment at "
         "{practice_name} on {date} at {time}. "
@@ -115,22 +116,19 @@ async def schedule_reminders(
 
         patient_name = f"{patient.first_name} {patient.last_name}"
 
-        # Select template
-        template = REMINDER_TEMPLATES.get(language) or REMINDER_TEMPLATES["en"]
-        message_content = template.format(
-            patient_name=patient_name,
-            practice_name=practice.name,
-            date=formatted_date,
-            time=formatted_time,
+        # Load practice config for custom reminder templates
+        config_result = await db.execute(
+            select(PracticeConfig).where(PracticeConfig.practice_id == appointment.practice_id)
         )
+        practice_config = config_result.scalar_one_or_none()
 
-        # Define reminder offsets: (hours_before, label)
+        # Define reminder offsets: (timedelta, label, config_field)
         offsets = [
-            (timedelta(hours=24), "24h"),
-            (timedelta(hours=2), "2h"),
+            (timedelta(hours=24), "24h", "reminder_template_24h"),
+            (timedelta(hours=2), "2h", "reminder_template_2h"),
         ]
 
-        for offset, label in offsets:
+        for offset, label, config_field in offsets:
             reminder_time = appt_dt - offset
 
             # Skip if the reminder time is already in the past
@@ -140,6 +138,22 @@ async def schedule_reminders(
                     label, appointment.id,
                 )
                 continue
+
+            # Get template from practice config or fallback to default
+            config_templates = {}
+            if practice_config:
+                config_templates = getattr(practice_config, config_field, None) or {}
+            template = (
+                config_templates.get(language)
+                or DEFAULT_REMINDER_TEMPLATES.get(language)
+                or DEFAULT_REMINDER_TEMPLATES["en"]
+            )
+            message_content = template.format(
+                patient_name=patient_name,
+                practice_name=practice.name,
+                date=formatted_date,
+                time=formatted_time,
+            )
 
             # Check for duplicate (same appointment, same scheduled_for)
             existing_stmt = select(AppointmentReminder).where(

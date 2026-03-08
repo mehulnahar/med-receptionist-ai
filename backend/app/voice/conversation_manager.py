@@ -138,7 +138,23 @@ class ConversationManager:
         )
 
         # 2. Triage — check for emergencies BEFORE LLM
-        triage_result = detect_urgency(transcript, session.language)
+        # Load practice config for custom emergency message
+        _emergency_msg = None
+        try:
+            from app.database import AsyncSessionLocal
+            from app.models.practice_config import PracticeConfig
+            from sqlalchemy import select as _sel
+            async with AsyncSessionLocal() as _db:
+                _cfg_result = await _db.execute(
+                    _sel(PracticeConfig.emergency_message).where(
+                        PracticeConfig.practice_id == session.practice_id
+                    )
+                )
+                _emergency_msg = _cfg_result.scalar_one_or_none()
+        except Exception:
+            logger.debug("Could not load PracticeConfig for emergency_message, using default")
+
+        triage_result = detect_urgency(transcript, session.language, emergency_message=_emergency_msg)
         if triage_result.level == UrgencyLevel.EMERGENCY:
             logger.warning(
                 "EMERGENCY detected in call %s: %s (%.1fms)",

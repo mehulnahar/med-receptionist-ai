@@ -122,6 +122,7 @@ async def update_practice_config(
             await update_assistant_transfer_number(
                 assistant_id=config.vapi_assistant_id,
                 transfer_number=config.transfer_number,
+                transfer_message=config.transfer_message,
             )
         except Exception as e:
             logger.warning("Failed to sync transfer number to Vapi: %s", e)
