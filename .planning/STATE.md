@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Patients get immediate, intelligent phone service without hold times
-**Current focus:** Phase 6 - Appointment Booking
+**Current focus:** Phase 7 - Insurance Verification
 
 ## Current Position
 
-Phase: 6 of 8 (Appointment Booking)
-Plan: 2 of 2 in current phase (COMPLETE)
-Status: Phase 06 complete
-Last activity: 2026-03-08 — Plan 06-02 complete: 22 comprehensive booking flow tests (BOOK-07 through BOOK-12)
+Phase: 7 of 8 (Insurance Verification)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-03-08 — Plan 07-01 complete: harden insurance fuzzy matching and DOB parsing
 
-Progress: [████████░░] ~69%
+Progress: [████████░░] ~75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
-- Average duration: ~3 min
-- Total execution time: ~35 min
+- Total plans completed: 15
+- Average duration: ~2 min
+- Total execution time: ~37 min
 
 **By Phase:**
 
@@ -33,9 +33,10 @@ Progress: [████████░░] ~69%
 | 04-vapi-config-sync | 3 | 6 min | ~2 min |
 | 05-call-transfer-fallback | 3 | 5 min | ~2 min |
 | 06-appointment-booking | 2 | 7 min | ~4 min |
+| 07-insurance-verification | 1 | 2 min | ~2 min |
 
 **Recent Trend:**
-- Last 5 plans: 05-02 (1 min), 05-01 (2 min), 05-03 (2 min), 06-01 (1 min), 06-02 (6 min)
+- Last 5 plans: 05-01 (2 min), 05-03 (2 min), 06-01 (1 min), 06-02 (6 min), 07-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -99,6 +100,9 @@ Decisions logged in PROJECT.md Key Decisions table.
 - [06-01]: Language included in booking response dict for downstream tool visibility
 - [06-02]: Patch locally-imported functions at source module path (not consumer) for Python local imports
 - [06-02]: Centralized _P_* patch target constants for DRY test configuration across 8 test classes
+- [07-01]: 4-char minimum guard on substring matching prevents false positives on short carrier name inputs
+- [07-01]: Bidirectional substring on name checked before aliases (step 1b) for faster resolution
+- [07-01]: DOB robust parser defined as local helper inside tool_verify_insurance to avoid polluting module scope
 
 ### Pending Todos
 
@@ -111,5 +115,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 06-02-PLAN.md (22 comprehensive booking flow tests)
+Stopped at: Completed 07-01-PLAN.md (harden insurance fuzzy matching and DOB parsing)
 Resume file: None
