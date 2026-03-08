@@ -501,6 +501,13 @@ function BookingSettingsTab() {
     allow_overbooking: false,
     max_overbooking_per_slot: 1,
     transfer_number: '',
+    transfer_message: '',
+    fallback_phone_number: '',
+    emergency_message: '',
+    reminder_template_24h_en: '',
+    reminder_template_24h_es: '',
+    reminder_template_2h_en: '',
+    reminder_template_2h_es: '',
   })
 
   useEffect(() => {
@@ -518,6 +525,13 @@ function BookingSettingsTab() {
             allow_overbooking: data.allow_overbooking ?? false,
             max_overbooking_per_slot: data.max_overbooking_per_slot ?? 1,
             transfer_number: data.transfer_number || '',
+            transfer_message: data.transfer_message || '',
+            fallback_phone_number: data.fallback_phone_number || '',
+            emergency_message: data.emergency_message || '',
+            reminder_template_24h_en: data.reminder_template_24h?.en || '',
+            reminder_template_24h_es: data.reminder_template_24h?.es || '',
+            reminder_template_2h_en: data.reminder_template_2h?.en || '',
+            reminder_template_2h_es: data.reminder_template_2h?.es || '',
           })
         }
       } catch (err) {
@@ -548,14 +562,34 @@ function BookingSettingsTab() {
         allow_overbooking: form.allow_overbooking,
         max_overbooking_per_slot: parseInt(form.max_overbooking_per_slot, 10) || 1,
         transfer_number: form.transfer_number.trim() || undefined,
+        transfer_message: form.transfer_message.trim() || undefined,
+        fallback_phone_number: form.fallback_phone_number.trim() || undefined,
+        emergency_message: form.emergency_message.trim() || undefined,
+        reminder_template_24h: (form.reminder_template_24h_en.trim() || form.reminder_template_24h_es.trim())
+          ? {
+              ...(form.reminder_template_24h_en.trim() ? { en: form.reminder_template_24h_en.trim() } : {}),
+              ...(form.reminder_template_24h_es.trim() ? { es: form.reminder_template_24h_es.trim() } : {}),
+            }
+          : undefined,
+        reminder_template_2h: (form.reminder_template_2h_en.trim() || form.reminder_template_2h_es.trim())
+          ? {
+              ...(form.reminder_template_2h_en.trim() ? { en: form.reminder_template_2h_en.trim() } : {}),
+              ...(form.reminder_template_2h_es.trim() ? { es: form.reminder_template_2h_es.trim() } : {}),
+            }
+          : undefined,
       })
       setToast({ type: 'success', message: 'Booking settings saved successfully.' })
     } catch (err) {
-      setToast({
-        type: 'error',
-        message:
-          err.response?.data?.detail || 'Failed to save booking settings.',
-      })
+      let message = 'Failed to save booking settings.'
+      if (err.response?.data?.detail) {
+        if (typeof err.response.data.detail === 'string') {
+          message = err.response.data.detail
+        } else if (Array.isArray(err.response.data.detail)) {
+          // Pydantic 422 validation errors
+          message = err.response.data.detail.map(e => e.msg).join('; ')
+        }
+      }
+      setToast({ type: 'error', message })
     } finally {
       setSaving(false)
     }
@@ -691,6 +725,132 @@ function BookingSettingsTab() {
             When the AI needs to transfer a call to a human, it will dial this
             number
           </p>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Transfer Message"
+        description="Message spoken to the caller when being transferred to staff"
+      >
+        <div>
+          <FieldLabel htmlFor="transfer-message">Transfer Message</FieldLabel>
+          <textarea
+            id="transfer-message"
+            value={form.transfer_message}
+            onChange={(e) => handleChange('transfer_message', e.target.value)}
+            placeholder="I'm transferring you to our office staff now. Please hold for just a moment."
+            rows={3}
+            className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y"
+          />
+          <p className="mt-1 text-xs text-gray-400">
+            This message is spoken to callers before being transferred to staff
+          </p>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Fallback Phone Number"
+        description="Phone number to ring when AI/backend is unreachable"
+      >
+        <div>
+          <FieldLabel htmlFor="fallback-phone">Fallback Number</FieldLabel>
+          <div className="relative sm:w-72">
+            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <TextInput
+              id="fallback-phone"
+              type="tel"
+              value={form.fallback_phone_number}
+              onChange={(e) => handleChange('fallback_phone_number', e.target.value)}
+              placeholder="+12125551234"
+              className="pl-10"
+            />
+          </div>
+          <p className="mt-1 text-xs text-gray-400">
+            E.164 format (e.g., +12125551234). Used by Twilio fallback when the AI system is down.
+          </p>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Emergency Message"
+        description="Message spoken when a caller describes an emergency situation"
+      >
+        <div>
+          <FieldLabel htmlFor="emergency-message">Emergency Message</FieldLabel>
+          <textarea
+            id="emergency-message"
+            value={form.emergency_message}
+            onChange={(e) => handleChange('emergency_message', e.target.value)}
+            placeholder="If this is a medical emergency, please hang up and call 911."
+            rows={3}
+            className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y"
+          />
+          <p className="mt-1 text-xs text-gray-400">
+            This message is spoken when the AI detects an emergency situation
+          </p>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Appointment Reminder Templates"
+        description="SMS templates for appointment reminders. Use {patient_name}, {practice_name}, {date}, and {time} as placeholders."
+      >
+        <div className="space-y-6">
+          <div>
+            <h4 className="text-sm font-semibold text-gray-800 mb-3">24-Hour Reminder</h4>
+            <div className="space-y-3">
+              <div>
+                <FieldLabel htmlFor="reminder-24h-en">English Template</FieldLabel>
+                <textarea
+                  id="reminder-24h-en"
+                  value={form.reminder_template_24h_en}
+                  onChange={(e) => handleChange('reminder_template_24h_en', e.target.value)}
+                  placeholder="Hi {patient_name}, this is a reminder of your appointment at {practice_name} on {date} at {time}."
+                  rows={3}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y"
+                />
+              </div>
+              <div>
+                <FieldLabel htmlFor="reminder-24h-es">Spanish Template</FieldLabel>
+                <textarea
+                  id="reminder-24h-es"
+                  value={form.reminder_template_24h_es}
+                  onChange={(e) => handleChange('reminder_template_24h_es', e.target.value)}
+                  placeholder="Hola {patient_name}, este es un recordatorio de su cita en {practice_name} el {date} a las {time}."
+                  rows={3}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-6">
+            <h4 className="text-sm font-semibold text-gray-800 mb-3">2-Hour Reminder</h4>
+            <div className="space-y-3">
+              <div>
+                <FieldLabel htmlFor="reminder-2h-en">English Template</FieldLabel>
+                <textarea
+                  id="reminder-2h-en"
+                  value={form.reminder_template_2h_en}
+                  onChange={(e) => handleChange('reminder_template_2h_en', e.target.value)}
+                  placeholder="Hi {patient_name}, your appointment at {practice_name} is in 2 hours at {time} today."
+                  rows={3}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y"
+                />
+              </div>
+              <div>
+                <FieldLabel htmlFor="reminder-2h-es">Spanish Template</FieldLabel>
+                <textarea
+                  id="reminder-2h-es"
+                  value={form.reminder_template_2h_es}
+                  onChange={(e) => handleChange('reminder_template_2h_es', e.target.value)}
+                  placeholder="Hola {patient_name}, su cita en {practice_name} es en 2 horas a las {time} hoy."
+                  rows={3}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors resize-y"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </SectionCard>
 
