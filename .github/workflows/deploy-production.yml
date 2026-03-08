@@ -58,6 +58,12 @@ jobs:
           CORS_ORIGINS_PROD: ${{ secrets.CORS_ORIGINS_PROD }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           SECRETARY_PASSWORD: ${{ secrets.SECRETARY_PASSWORD }}
+          VAPI_API_KEY: ${{ secrets.VAPI_API_KEY }}
+          VAPI_WEBHOOK_SECRET: ${{ secrets.VAPI_WEBHOOK_SECRET }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          STEDI_API_KEY: ${{ secrets.STEDI_API_KEY }}
         run: |
           python3 - <<'PYEOF'
           import json, os
@@ -76,6 +82,12 @@ jobs:
                   "APP_URL": os.environ["APP_URL_PROD"],
                   "ADMIN_PASSWORD": os.environ.get("ADMIN_PASSWORD", ""),
                   "SECRETARY_PASSWORD": os.environ.get("SECRETARY_PASSWORD", ""),
+                  "VAPI_API_KEY": os.environ.get("VAPI_API_KEY", ""),
+                  "VAPI_WEBHOOK_SECRET": os.environ.get("VAPI_WEBHOOK_SECRET", ""),
+                  "TWILIO_ACCOUNT_SID": os.environ.get("TWILIO_ACCOUNT_SID", ""),
+                  "TWILIO_AUTH_TOKEN": os.environ.get("TWILIO_AUTH_TOKEN", ""),
+                  "TWILIO_PHONE_NUMBER": os.environ.get("TWILIO_PHONE_NUMBER", ""),
+                  "STEDI_API_KEY": os.environ.get("STEDI_API_KEY", ""),
                 }
               }
             },
