@@ -147,12 +147,21 @@ async def _seed_users(session: AsyncSession, practice_id) -> None:
 
 
 async def _seed_practice_config(session: AsyncSession, practice_id) -> None:
-    """Create the practice configuration if it does not exist."""
+    """Create the practice configuration if it does not exist.
+
+    If config exists but transfer_number is not set, updates it.
+    """
     result = await session.execute(
         select(PracticeConfig).where(PracticeConfig.practice_id == practice_id)
     )
-    if result.scalars().first():
-        logger.info("PracticeConfig already exists, skipping.")
+    existing = result.scalars().first()
+    if existing:
+        # Update transfer_number if not yet set
+        if not existing.transfer_number:
+            existing.transfer_number = "+16612288584"
+            logger.info("Updated PracticeConfig with transfer_number.")
+        else:
+            logger.info("PracticeConfig already exists, skipping.")
         return
 
     config = PracticeConfig(
@@ -164,6 +173,7 @@ async def _seed_practice_config(session: AsyncSession, practice_id) -> None:
         allow_overbooking=True,
         max_overbooking_per_slot=3,
         booking_horizon_days=90,
+        transfer_number="+16612288584",
         greetings={
             "en": "Thank you for calling Dr. Stefanides' office. How can I help you today?",
             "es": "Gracias por llamar a la oficina del Dr. Stefanides. \u00bfC\u00f3mo puedo ayudarle hoy?",
@@ -327,6 +337,24 @@ async def _seed_appointment_types(session: AsyncSession, practice_id) -> None:
             "detection_rules": {"is_new": True, "accident_type": "workers_comp"},
             "sort_order": 5,
         },
+        {
+            "name": "No Fault Initial",
+            "color": "#0EA5E9",
+            "for_new_patients": True,
+            "for_existing_patients": False,
+            "requires_accident_date": True,
+            "detection_rules": {"is_new": True, "accident_type": "no_fault"},
+            "sort_order": 6,
+        },
+        {
+            "name": "Re-Evaluation",
+            "color": "#8B5CF6",
+            "for_new_patients": False,
+            "for_existing_patients": True,
+            "requires_accident_date": False,
+            "detection_rules": {"is_new": False, "visit_type": "re_evaluation"},
+            "sort_order": 7,
+        },
     ]
 
     for type_data in types:
@@ -348,43 +376,99 @@ async def _seed_appointment_types(session: AsyncSession, practice_id) -> None:
 
 
 async def _seed_insurance_carriers(session: AsyncSession, practice_id) -> None:
-    """Create insurance carriers if they do not exist."""
+    """Create insurance carriers if they do not exist.
+
+    If carriers exist but are missing stedi_payer_id, updates them.
+    Also adds any new carriers not yet present in the database.
+    """
     result = await session.execute(
         select(InsuranceCarrier).where(InsuranceCarrier.practice_id == practice_id)
     )
     existing = result.scalars().all()
-    if existing:
-        logger.info("Insurance carriers already exist, skipping.")
-        return
 
     carriers = [
         {
             "name": "MetroPlus",
             "aliases": ["Metro Plus", "Metro", "MetroPlus Health"],
+            "stedi_payer_id": "METRO",
         },
         {
             "name": "Healthfirst",
             "aliases": ["Health First", "HF"],
+            "stedi_payer_id": "HF001",
         },
         {
             "name": "Fidelis Care",
             "aliases": ["Fidelis", "Fidelis NY"],
+            "stedi_payer_id": "FIDEL",
         },
         {
             "name": "UnitedHealthcare",
             "aliases": ["United", "UHC", "United Health Care", "United Healthcare"],
+            "stedi_payer_id": "87726",
         },
         {
             "name": "Medicare",
             "aliases": ["Medicare Part A", "Medicare Part B", "CMS"],
+            "stedi_payer_id": "CMS",
+        },
+        {
+            "name": "Aetna",
+            "aliases": ["Aetna Health", "Aetna Better Health"],
+            "stedi_payer_id": "60054",
+        },
+        {
+            "name": "Blue Cross Blue Shield",
+            "aliases": ["BCBS", "Blue Cross", "Blue Shield", "Anthem BCBS"],
+            "stedi_payer_id": "BCBSA",
+        },
+        {
+            "name": "Cigna",
+            "aliases": ["Cigna Healthcare", "Cigna Health"],
+            "stedi_payer_id": "62308",
         },
     ]
+
+    if existing:
+        # Build a lookup of payer IDs from the full carriers list
+        carrier_payer_ids = {c["name"]: c["stedi_payer_id"] for c in carriers}
+
+        # Update stedi_payer_id on existing carriers that are missing it
+        updated = 0
+        for carrier in existing:
+            if carrier.name in carrier_payer_ids and not carrier.stedi_payer_id:
+                carrier.stedi_payer_id = carrier_payer_ids[carrier.name]
+                updated += 1
+        if updated:
+            logger.info("Updated stedi_payer_id on %d existing carriers.", updated)
+
+        # Add any new carriers not yet in the database
+        existing_names = {c.name for c in existing}
+        added = 0
+        for carrier_data in carriers:
+            if carrier_data["name"] not in existing_names:
+                carrier = InsuranceCarrier(
+                    practice_id=practice_id,
+                    name=carrier_data["name"],
+                    aliases=carrier_data["aliases"],
+                    stedi_payer_id=carrier_data["stedi_payer_id"],
+                    is_active=True,
+                )
+                session.add(carrier)
+                added += 1
+        if added:
+            await session.flush()
+            logger.info("Added %d new insurance carriers.", added)
+        if not updated and not added:
+            logger.info("Insurance carriers already up to date, skipping.")
+        return
 
     for carrier_data in carriers:
         carrier = InsuranceCarrier(
             practice_id=practice_id,
             name=carrier_data["name"],
             aliases=carrier_data["aliases"],
+            stedi_payer_id=carrier_data["stedi_payer_id"],
             is_active=True,
         )
         session.add(carrier)
