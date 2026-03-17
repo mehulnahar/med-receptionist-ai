@@ -65,7 +65,7 @@ Each task was committed atomically:
 
 1. **Task 1: Update seed data with complete demo-ready content** - `645f9e6` (feat)
 
-**Plan metadata:** [pending] (docs: complete plan)
+**Plan metadata:** `2bb6338` (docs: complete plan)
 
 ## Files Created/Modified
 - `backend/app/seed.py` - Updated with 8 appointment types, 8 insurance carriers with stedi_payer_id, transfer_number, and idempotent update paths
