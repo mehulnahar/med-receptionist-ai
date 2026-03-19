@@ -173,7 +173,8 @@ async def book_appointment_endpoint(
     except Exception as reminder_err:
         logger.warning("Reminder auto-schedule failed for appointment %s: %s", appt.id, reminder_err)
 
-    # Refresh so response reflects SMS/reminder updates (e.g. sms_confirmation_sent)
+    # Commit all changes (booking + SMS flag + reminders) and refresh
+    await db.commit()
     await db.refresh(appt)
 
     return AppointmentResponse(**build_appointment_response(appt))
@@ -360,6 +361,8 @@ async def cancel_appointment_endpoint(
     except Exception as wl_err:
         logger.warning("Failed to check waitlist after cancellation of %s: %s", appointment_id, wl_err)
 
+    await db.commit()
+    await db.refresh(appt)
     return AppointmentResponse(**build_appointment_response(appt))
 
 
@@ -395,6 +398,8 @@ async def confirm_appointment_endpoint(
             detail=error_msg,
         )
 
+    await db.commit()
+    await db.refresh(appt)
     return AppointmentResponse(**build_appointment_response(appt))
 
 
@@ -447,6 +452,8 @@ async def reschedule_appointment_endpoint(
     except Exception as reminder_err:
         logger.warning("Failed to update reminders for rescheduled appointment %s: %s", appointment_id, reminder_err)
 
+    await db.commit()
+    await db.refresh(new_appt)
     return AppointmentResponse(**build_appointment_response(new_appt))
 
 
