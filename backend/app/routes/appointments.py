@@ -347,22 +347,24 @@ async def cancel_appointment_endpoint(
             detail=error_msg,
         )
 
-    # Cancel pending reminders for the cancelled appointment
+    # Commit the cancellation FIRST so it persists regardless of what happens next
+    await db.commit()
+    await db.refresh(appt)
+
+    # Cancel pending reminders (non-blocking — failure doesn't affect cancellation)
     try:
         from app.services.reminder_service import cancel_reminders
         await cancel_reminders(db, appointment_id)
     except Exception as reminder_err:
         logger.warning("Failed to cancel reminders for appointment %s: %s", appointment_id, reminder_err)
 
-    # Notify waitlisted patients about the newly-opened slot
+    # Notify waitlisted patients about the newly-opened slot (non-blocking)
     try:
         from app.services.waitlist_service import check_waitlist_on_cancellation
         await check_waitlist_on_cancellation(db, practice_id, appt)
     except Exception as wl_err:
         logger.warning("Failed to check waitlist after cancellation of %s: %s", appointment_id, wl_err)
 
-    await db.commit()
-    await db.refresh(appt)
     return AppointmentResponse(**build_appointment_response(appt))
 
 
