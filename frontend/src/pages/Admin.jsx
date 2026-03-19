@@ -1426,8 +1426,7 @@ function UsersTab({ practices, setToast }) {
   const [addForm, setAddForm] = useState({
     email: '',
     password: '',
-    first_name: '',
-    last_name: '',
+    name: '',
     role: 'secretary',
     practice_id: '',
   })
@@ -1469,8 +1468,7 @@ function UsersTab({ practices, setToast }) {
     setAddForm({
       email: '',
       password: '',
-      first_name: '',
-      last_name: '',
+      name: '',
       role: 'secretary',
       practice_id: '',
     })
@@ -1485,12 +1483,8 @@ function UsersTab({ practices, setToast }) {
       setToast({ type: 'error', message: 'Password is required.' })
       return
     }
-    if (!addForm.first_name.trim()) {
-      setToast({ type: 'error', message: 'First name is required.' })
-      return
-    }
-    if (!addForm.last_name.trim()) {
-      setToast({ type: 'error', message: 'Last name is required.' })
+    if (!addForm.name.trim()) {
+      setToast({ type: 'error', message: 'Name is required.' })
       return
     }
 
@@ -1499,8 +1493,7 @@ function UsersTab({ practices, setToast }) {
       const body = {
         email: addForm.email.trim(),
         password: addForm.password,
-        first_name: addForm.first_name.trim(),
-        last_name: addForm.last_name.trim(),
+        name: addForm.name.trim(),
         role: addForm.role,
       }
       if (addForm.practice_id) {
@@ -1526,8 +1519,7 @@ function UsersTab({ practices, setToast }) {
     setEditingId(user.id)
     setEditForm({
       email: user.email || '',
-      first_name: user.first_name || '',
-      last_name: user.last_name || '',
+      name: user.name || '',
       role: user.role || 'secretary',
       practice_id: user.practice_id || '',
     })
@@ -1547,8 +1539,7 @@ function UsersTab({ practices, setToast }) {
     try {
       const body = {
         email: editForm.email.trim(),
-        first_name: editForm.first_name.trim() || undefined,
-        last_name: editForm.last_name.trim() || undefined,
+        name: editForm.name.trim() || undefined,
         role: editForm.role,
       }
       if (editForm.practice_id) {
@@ -1702,19 +1693,11 @@ function UsersTab({ practices, setToast }) {
                                 />
                               </div>
                               <div>
-                                <FieldLabel>First Name</FieldLabel>
+                                <FieldLabel>Name</FieldLabel>
                                 <TextInput
-                                  value={editForm.first_name}
-                                  onChange={(e) => setEditForm((prev) => ({ ...prev, first_name: e.target.value }))}
-                                  placeholder="First name"
-                                />
-                              </div>
-                              <div>
-                                <FieldLabel>Last Name</FieldLabel>
-                                <TextInput
-                                  value={editForm.last_name}
-                                  onChange={(e) => setEditForm((prev) => ({ ...prev, last_name: e.target.value }))}
-                                  placeholder="Last name"
+                                  value={editForm.name}
+                                  onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                                  placeholder="Full name"
                                 />
                               </div>
                               <div>
@@ -1774,7 +1757,7 @@ function UsersTab({ practices, setToast }) {
                       <td className="px-5 py-3.5">
                         <div>
                           <p className="text-sm font-medium text-gray-900">
-                            {[u.first_name, u.last_name].filter(Boolean).join(' ') || '--'}
+                            {u.name || '--'}
                           </p>
                           <p className="text-xs text-gray-500">{u.email}</p>
                         </div>
@@ -1889,19 +1872,11 @@ function UsersTab({ practices, setToast }) {
               />
             </div>
             <div>
-              <FieldLabel required>First Name</FieldLabel>
+              <FieldLabel required>Name</FieldLabel>
               <TextInput
-                value={addForm.first_name}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, first_name: e.target.value }))}
-                placeholder="First name"
-              />
-            </div>
-            <div>
-              <FieldLabel required>Last Name</FieldLabel>
-              <TextInput
-                value={addForm.last_name}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, last_name: e.target.value }))}
-                placeholder="Last name"
+                value={addForm.name}
+                onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Full name"
               />
             </div>
             <div>
