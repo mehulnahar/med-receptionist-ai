@@ -1158,6 +1158,29 @@ export default function Patients() {
   // Success feedback
   const [feedback, setFeedback] = useState(null)
 
+  // Load all patients on page mount
+  useEffect(() => {
+    async function loadAllPatients() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await api.get('/patients/', { params: { limit: 50 } })
+        const data = res.data
+        const list = Array.isArray(data) ? data : data.patients || []
+        const totalCount = typeof data.total === 'number' ? data.total : list.length
+        setPatients(list)
+        setTotal(totalCount)
+      } catch (err) {
+        if (err.response?.status !== 401) {
+          setError(err.response?.data?.detail || 'Failed to load patients.')
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadAllPatients()
+  }, [])
+
   // Clear feedback after 4 seconds
   useEffect(() => {
     if (feedback) {
@@ -1221,29 +1244,59 @@ export default function Patients() {
     searchPatients(nameQuery, phoneQuery, dobQuery)
   }
 
-  function handleClearSearch() {
+  async function handleClearSearch() {
     setNameQuery('')
     setPhoneQuery('')
     setDobQuery('')
-    setPatients([])
-    setTotal(0)
     setActiveSearch(false)
     setError(null)
-  }
-
-  function handlePatientCreated() {
-    setShowAddModal(false)
-    setFeedback({ type: 'success', message: 'Patient created successfully!' })
-    // Re-run search if active, to show the new patient
-    if (activeSearch) {
-      searchPatients(nameQuery, phoneQuery, dobQuery)
+    // Reload all patients
+    try {
+      setLoading(true)
+      const res = await api.get('/patients/', { params: { limit: 50 } })
+      const data = res.data
+      const list = Array.isArray(data) ? data : data.patients || []
+      const totalCount = typeof data.total === 'number' ? data.total : list.length
+      setPatients(list)
+      setTotal(totalCount)
+    } catch (err) {
+      if (err.response?.status !== 401) {
+        setError(err.response?.data?.detail || 'Failed to load patients.')
+      }
+    } finally {
+      setLoading(false)
     }
   }
 
-  function handlePatientUpdated() {
-    // Re-run search to refresh the list
+  async function handlePatientCreated() {
+    setShowAddModal(false)
+    setFeedback({ type: 'success', message: 'Patient created successfully!' })
+    // Reload patients list
     if (activeSearch) {
       searchPatients(nameQuery, phoneQuery, dobQuery)
+    } else {
+      try {
+        const res = await api.get('/patients/', { params: { limit: 50 } })
+        const data = res.data
+        const list = Array.isArray(data) ? data : data.patients || []
+        setPatients(list)
+        setTotal(typeof data.total === 'number' ? data.total : list.length)
+      } catch {}
+    }
+  }
+
+  async function handlePatientUpdated() {
+    // Reload patients list
+    if (activeSearch) {
+      searchPatients(nameQuery, phoneQuery, dobQuery)
+    } else {
+      try {
+        const res = await api.get('/patients/', { params: { limit: 50 } })
+        const data = res.data
+        const list = Array.isArray(data) ? data : data.patients || []
+        setPatients(list)
+        setTotal(typeof data.total === 'number' ? data.total : list.length)
+      } catch {}
     }
   }
 
@@ -1422,10 +1475,8 @@ export default function Patients() {
               Patient Records
             </h2>
             <p className="text-sm text-gray-500 mt-0.5">
-              {!activeSearch
-                ? 'Search for patients using the search bar above'
-                : loading
-                  ? 'Searching...'
+              {loading
+                  ? 'Loading patients...'
                   : total === 0
                     ? 'No patients found'
                     : `${total} patient${total === 1 ? '' : 's'} found`}
@@ -1439,12 +1490,6 @@ export default function Patients() {
             fullPage={false}
             message="Searching patients..."
             size="md"
-          />
-        ) : !activeSearch ? (
-          <EmptyState
-            icon={Search}
-            title="Search for patients"
-            description="Enter a patient name or phone number above to find patient records."
           />
         ) : patients.length === 0 ? (
           <EmptyState
