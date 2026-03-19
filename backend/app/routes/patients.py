@@ -100,7 +100,7 @@ async def create_patient(
 
     await log_audit(
         db, action="create", entity_type="patient", entity_id=patient.id,
-        user=current_user, new_value=request.model_dump(), request=http_request,
+        user=current_user, new_value=request.model_dump(mode="json"), request=http_request,
     )
     await db.commit()
     await db.refresh(patient)
@@ -323,9 +323,19 @@ async def update_patient(
     for field, value in update_data.items():
         setattr(patient, field, value)
 
+    # Serialize date/UUID fields in update_data for JSON storage
+    update_data_json = {}
+    for k, v in update_data.items():
+        if hasattr(v, "isoformat"):
+            update_data_json[k] = v.isoformat()
+        elif hasattr(v, "hex"):
+            update_data_json[k] = str(v)
+        else:
+            update_data_json[k] = v
+
     await log_audit(
         db, action="update", entity_type="patient", entity_id=patient.id,
-        user=current_user, old_value=old_values, new_value=update_data,
+        user=current_user, old_value=old_values, new_value=update_data_json,
         request=http_request,
     )
     await db.commit()
