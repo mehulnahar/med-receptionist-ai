@@ -504,6 +504,23 @@ async def tool_book_appointment(
             call_id=resolved_call_id,
         )
 
+        # --- Commit booking data IMMEDIATELY ---
+        # Critical: commit patient + appointment NOW before SMS/reminder side-effects.
+        # Previously the commit was deferred to the webhook handler, which could fail
+        # silently, losing all booking data while telling the caller "you're booked".
+        try:
+            await db.commit()
+            logger.info(
+                "tool_book_appointment: committed patient=%s appointment=%s",
+                patient_id, appointment.id,
+            )
+        except Exception as commit_err:
+            logger.exception(
+                "tool_book_appointment: CRITICAL commit failed: %s", commit_err,
+            )
+            await db.rollback()
+            return {"success": False, "error": "Failed to save appointment — please try again"}
+
         # --- Link call ---
         if vapi_call_id:
             await link_call_to_patient(db, vapi_call_id, patient_id)
