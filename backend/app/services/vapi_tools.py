@@ -1076,8 +1076,10 @@ async def tool_save_caller_info(
         if patient_found:
             result["patient_id"] = str(patient_id)
             result["message"] = f"Welcome back, {first_name}! I found your record."
+            result["next_step"] = "Ask if anything has changed (phone, insurance, address), then ask what they need today."
         else:
             result["message"] = f"Thank you, {first_name}. I've noted your information."
+            result["next_step"] = "Now ask for their date of birth. Say: What's your date of birth? Like month, day, year — for example, March 5th, 1990."
 
         if reason:
             result["reason"] = reason
