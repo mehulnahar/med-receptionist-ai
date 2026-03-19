@@ -375,12 +375,26 @@ async def tool_check_availability(
                 "today": today.isoformat(),
             }
 
+        # Pick 3-4 spread-out slots for Jenny to offer (morning, midday, afternoon)
+        suggested = []
+        if available_slots:
+            slots_list = available_slots
+            n = len(slots_list)
+            if n <= 4:
+                suggested = slots_list
+            else:
+                # Pick spread-out slots: first, 1/3, 2/3, last
+                indices = [0, n // 3, 2 * n // 3, n - 1]
+                suggested = list(dict.fromkeys(slots_list[i] for i in indices))
+
         return {
             "date": target_date.isoformat(),
             "date_display": date_display,
-            "available_slots": available_slots,
+            "suggested_slots": suggested,
+            "all_available_slots": available_slots,
             "total_available": len(available_slots),
             "today": today.isoformat(),
+            "instruction": f"Offer ONLY these times to the caller: {', '.join(suggested)}. If they want a different time, check all_available_slots. Any time in all_available_slots can be booked.",
         }
 
     except KeyError as e:
