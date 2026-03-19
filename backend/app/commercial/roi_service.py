@@ -24,8 +24,28 @@ DEFAULT_AVG_CALL_DURATION_MIN = Decimal("4.50")
 DEFAULT_NO_SHOW_REDUCTION = Decimal("0.40")  # 40% reduction
 
 
+async def _table_exists(db: AsyncSession, table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    result = await db.execute(
+        text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :t)"),
+        {"t": table_name},
+    )
+    return result.scalar()
+
+
 async def get_roi_config(db: AsyncSession, practice_id: UUID) -> dict:
     """Fetch ROI configuration for a practice, with defaults."""
+    defaults = {
+        "staff_hourly_cost": DEFAULT_STAFF_HOURLY_COST,
+        "avg_appointment_value": DEFAULT_AVG_APPOINTMENT_VALUE,
+        "human_receptionist_monthly_cost": DEFAULT_HUMAN_RECEPTIONIST_MONTHLY,
+        "avg_call_duration_minutes": DEFAULT_AVG_CALL_DURATION_MIN,
+        "no_show_reduction_rate": DEFAULT_NO_SHOW_REDUCTION,
+    }
+
+    if not await _table_exists(db, "roi_config"):
+        return defaults
+
     result = await db.execute(
         text("SELECT * FROM roi_config WHERE practice_id = :pid"),
         {"pid": str(practice_id)},
@@ -41,13 +61,7 @@ async def get_roi_config(db: AsyncSession, practice_id: UUID) -> dict:
             "no_show_reduction_rate": Decimal(str(row.no_show_reduction_rate or DEFAULT_NO_SHOW_REDUCTION)),
         }
 
-    return {
-        "staff_hourly_cost": DEFAULT_STAFF_HOURLY_COST,
-        "avg_appointment_value": DEFAULT_AVG_APPOINTMENT_VALUE,
-        "human_receptionist_monthly_cost": DEFAULT_HUMAN_RECEPTIONIST_MONTHLY,
-        "avg_call_duration_minutes": DEFAULT_AVG_CALL_DURATION_MIN,
-        "no_show_reduction_rate": DEFAULT_NO_SHOW_REDUCTION,
-    }
+    return defaults
 
 
 async def get_roi_summary(
@@ -117,14 +131,16 @@ async def get_roi_summary(
     staff_cost_saved = call_hours * config["staff_hourly_cost"]
 
     # 5. Reminders sent and no-shows prevented
-    reminders_result = await db.execute(text("""
-        SELECT COUNT(*) as sent
-        FROM reminders
-        WHERE practice_id = :pid
-            AND status = 'sent'
-            AND sent_at >= :start
-    """), {"pid": str(practice_id), "start": start_date})
-    reminders_sent = reminders_result.scalar() or 0
+    reminders_sent = 0
+    if await _table_exists(db, "reminders"):
+        reminders_result = await db.execute(text("""
+            SELECT COUNT(*) as sent
+            FROM reminders
+            WHERE practice_id = :pid
+                AND status = 'sent'
+                AND sent_at >= :start
+        """), {"pid": str(practice_id), "start": start_date})
+        reminders_sent = reminders_result.scalar() or 0
 
     # Count actual no-shows in the period
     noshow_result = await db.execute(text("""
@@ -143,16 +159,19 @@ async def get_roi_summary(
     revenue_protected = Decimal(str(noshows_prevented)) * config["avg_appointment_value"]
 
     # 6. Insurance verifications
-    verif_result = await db.execute(text("""
-        SELECT
-            COUNT(*) as total,
-            COUNT(*) FILTER (WHERE status = 'success') as successful
-        FROM insurance_verifications
-        WHERE practice_id = :pid AND verified_at >= :start
-    """), {"pid": str(practice_id), "start": start_date})
-    verif_row = verif_result.fetchone()
-    total_verifications = verif_row.total or 0
-    successful_verifications = verif_row.successful or 0
+    total_verifications = 0
+    successful_verifications = 0
+    if await _table_exists(db, "insurance_verifications"):
+        verif_result = await db.execute(text("""
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status = 'success') as successful
+            FROM insurance_verifications
+            WHERE practice_id = :pid AND verified_at >= :start
+        """), {"pid": str(practice_id), "start": start_date})
+        verif_row = verif_result.fetchone()
+        total_verifications = verif_row.total or 0
+        successful_verifications = verif_row.successful or 0
 
     # 7. Total estimated savings
     ai_monthly_cost = Decimal("799")  # Base plan cost
@@ -160,14 +179,17 @@ async def get_roi_summary(
     monthly_savings = human_cost - ai_monthly_cost + staff_cost_saved + revenue_protected
 
     # 8. Patient satisfaction (from surveys)
-    survey_result = await db.execute(text("""
-        SELECT AVG(score) as avg_score, COUNT(*) as total
-        FROM call_surveys
-        WHERE practice_id = :pid AND responded_at >= :start
-    """), {"pid": str(practice_id), "start": start_date})
-    survey_row = survey_result.fetchone()
-    avg_satisfaction = float(survey_row.avg_score or 0)
-    survey_count = survey_row.total or 0
+    avg_satisfaction = 0.0
+    survey_count = 0
+    if await _table_exists(db, "call_surveys"):
+        survey_result = await db.execute(text("""
+            SELECT AVG(score) as avg_score, COUNT(*) as total
+            FROM call_surveys
+            WHERE practice_id = :pid AND responded_at >= :start
+        """), {"pid": str(practice_id), "start": start_date})
+        survey_row = survey_result.fetchone()
+        avg_satisfaction = float(survey_row.avg_score or 0)
+        survey_count = survey_row.total or 0
 
     return {
         "period": label,
