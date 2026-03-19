@@ -225,7 +225,7 @@ function BookAppointmentModal({ onClose, onBooked }) {
       setLoadingSlots(true)
       setBookTime('')
       try {
-        const res = await api.get('/schedule/availability', { params: { date: bookDate } })
+        const res = await api.get('/practice/schedule/availability', { params: { date: bookDate } })
         if (!cancelled) {
           setAvailableSlots(res.data.slots || [])
         }
