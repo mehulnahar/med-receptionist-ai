@@ -626,10 +626,10 @@ async def book_appointment(
             f"is fully booked"
         )
 
-    # Race-condition prevention: re-count bookings with FOR UPDATE lock.
-    # This ensures two concurrent requests cannot both see the slot as free.
+    # Race-condition prevention: lock matching rows, then count.
+    # FOR UPDATE cannot be used with aggregate functions in PostgreSQL.
     lock_stmt = (
-        select(func.count(Appointment.id))
+        select(Appointment.id)
         .where(
             and_(
                 Appointment.practice_id == practice_id,
@@ -641,7 +641,7 @@ async def book_appointment(
         .with_for_update()
     )
     locked_result = await db.execute(lock_stmt)
-    current_bookings = locked_result.scalar_one()
+    current_bookings = len(locked_result.all())
 
     max_per_slot = 1
     if config.allow_overbooking:
@@ -791,11 +791,11 @@ async def reschedule_appointment(
             f"is fully booked"
         )
 
-    # Race-condition prevention: re-count with FOR UPDATE lock (same as book_appointment)
-    # Exclude the old appointment being rescheduled from the count
+    # Race-condition prevention: lock matching rows, then count.
+    # FOR UPDATE cannot be used with aggregate functions in PostgreSQL.
     config = await _get_practice_config(db, practice_id)
     lock_stmt = (
-        select(func.count(Appointment.id))
+        select(Appointment.id)
         .where(
             and_(
                 Appointment.practice_id == practice_id,
@@ -808,7 +808,7 @@ async def reschedule_appointment(
         .with_for_update()
     )
     locked_result = await db.execute(lock_stmt)
-    current_bookings = locked_result.scalar_one()
+    current_bookings = len(locked_result.all())
 
     max_per_slot = config.max_overbooking_per_slot if config.allow_overbooking else 1
     if current_bookings >= max_per_slot:
