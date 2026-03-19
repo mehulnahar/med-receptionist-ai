@@ -856,6 +856,36 @@ async def _handle_end_of_call_report(
             except Exception as e:
                 logger.warning("vapi_webhook: failed to flag callback: %s", e)
 
+        # Extract caller_name from structured data and try to match patient
+        if call_record:
+            try:
+                # Set caller_name from structured data
+                if structured_data and isinstance(structured_data, dict):
+                    sdata_name = structured_data.get("caller_name")
+                    if sdata_name and not call_record.caller_name:
+                        call_record.caller_name = str(sdata_name)[:100]
+
+                # Try to match caller to an existing patient by phone number
+                if call_record.caller_phone and not call_record.patient_id and practice_id:
+                    from app.models.patient import Patient as PatientModel
+                    phone_normalized = call_record.caller_phone
+                    patient_match = await db.execute(
+                        select(PatientModel).where(
+                            PatientModel.practice_id == practice_id,
+                            PatientModel.phone == phone_normalized,
+                        ).limit(1)
+                    )
+                    matched_patient = patient_match.scalar_one_or_none()
+                    if matched_patient:
+                        call_record.patient_id = matched_patient.id
+                        if not call_record.caller_name:
+                            call_record.caller_name = f"{matched_patient.first_name} {matched_patient.last_name}"
+                        logger.info("vapi_webhook: linked call %s to patient %s", vapi_call_id, matched_patient.id)
+
+                await db.flush()
+            except Exception as link_err:
+                logger.warning("vapi_webhook: failed to link call to patient: %s", link_err)
+
         # Commit all call data BEFORE spawning the background feedback task
         # so the task's own session can read the committed data.
         await db.commit()
