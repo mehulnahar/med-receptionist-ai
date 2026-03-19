@@ -357,6 +357,7 @@ async def vapi_webhook(
         elif msg_type == "end-of-call-report":
             return await _handle_end_of_call_report(
                 db, message, body, vapi_call_id, call_obj,
+                practice_id=practice_id, caller_phone=caller_phone,
             )
 
         # ---- hang ----
@@ -706,6 +707,8 @@ async def _handle_end_of_call_report(
     body: dict,
     vapi_call_id: str | None,
     call_obj: dict,
+    practice_id: UUID | None = None,
+    caller_phone: str | None = None,
 ) -> JSONResponse:
     """
     Call has ended. Persist transcript, recording, summary, cost, duration.
@@ -786,6 +789,26 @@ async def _handle_end_of_call_report(
             vapi_call_id, ended_reason, cost, duration,
         )
 
+        # Parse timestamps for new record creation (if needed)
+        started_at_str = call_obj.get("startedAt")
+        ended_at_str = call_obj.get("endedAt")
+        started_at_dt = None
+        ended_at_dt = None
+        if started_at_str:
+            try:
+                started_at_dt = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
+        if ended_at_str:
+            try:
+                ended_at_dt = datetime.fromisoformat(ended_at_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
+
+        # Determine call direction
+        call_type = call_obj.get("type", "")
+        direction = "outbound" if "outbound" in call_type.lower() else "inbound"
+
         # HOOK-03 required fields: recording_url, transcript, summary, structured_data, cost
         call_record = await save_end_of_call_report(
             db=db,
@@ -798,6 +821,11 @@ async def _handle_end_of_call_report(
             ended_reason=ended_reason,
             structured_data=structured_data,
             success_evaluation=success_evaluation,
+            practice_id=practice_id,
+            caller_phone=caller_phone,
+            direction=direction,
+            started_at=started_at_dt,
+            ended_at=ended_at_dt,
         )
 
         # Auto-flag for callback if call was dropped/missed and we have caller info

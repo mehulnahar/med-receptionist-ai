@@ -134,6 +134,11 @@ async def save_end_of_call_report(
     metadata: dict[str, Any] | None = None,
     structured_data: dict | None = None,
     success_evaluation: str | None = None,
+    practice_id: UUID | None = None,
+    caller_phone: str | None = None,
+    direction: str = "inbound",
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
 ) -> Call | None:
     """
     Save all end-of-call data to the call record.
@@ -150,6 +155,10 @@ async def save_end_of_call_report(
     If duration is not explicitly provided but started_at and ended_at are
     available on the call record, the duration is calculated automatically.
 
+    If no existing call record is found and practice_id is provided,
+    a new call record is created (handles cases where status-update
+    webhooks were missed, e.g., outbound calls from test callers).
+
     Returns the updated Call or None if no matching call was found.
     """
     stmt = select(Call).where(Call.vapi_call_id == vapi_call_id)
@@ -157,7 +166,29 @@ async def save_end_of_call_report(
     call = result.scalar_one_or_none()
 
     if not call:
-        return None
+        if not practice_id:
+            import logging
+            logging.getLogger(__name__).warning(
+                "save_end_of_call_report: no call record found for %s and no practice_id to create one",
+                vapi_call_id,
+            )
+            return None
+        # Create a new call record so end-of-call data is not lost
+        import logging
+        logging.getLogger(__name__).info(
+            "save_end_of_call_report: creating new call record for %s (no prior status-update received)",
+            vapi_call_id,
+        )
+        call = Call(
+            practice_id=practice_id,
+            vapi_call_id=vapi_call_id,
+            caller_phone=_normalize_phone(caller_phone) if caller_phone else None,
+            direction=direction,
+            status="ended",
+            started_at=started_at,
+            ended_at=ended_at,
+        )
+        db.add(call)
 
     if transcript is not None:
         call.transcription = transcript
