@@ -506,14 +506,27 @@ async def tool_book_appointment(
 
         # --- Commit booking data IMMEDIATELY ---
         # Critical: commit patient + appointment NOW before SMS/reminder side-effects.
-        # Previously the commit was deferred to the webhook handler, which could fail
-        # silently, losing all booking data while telling the caller "you're booked".
         try:
             await db.commit()
             logger.info(
                 "tool_book_appointment: committed patient=%s appointment=%s",
                 patient_id, appointment.id,
             )
+            # VERIFY data persisted (debug: data was vanishing after commit)
+            verify_result = await db.execute(
+                select(Appointment).where(Appointment.id == appointment.id)
+            )
+            verify_appt = verify_result.scalar_one_or_none()
+            if verify_appt:
+                logger.info(
+                    "tool_book_appointment: VERIFIED appt %s in DB (date=%s time=%s)",
+                    verify_appt.id, verify_appt.date, verify_appt.time,
+                )
+            else:
+                logger.error(
+                    "tool_book_appointment: CRITICAL — appt %s GONE after commit!",
+                    appointment.id,
+                )
         except Exception as commit_err:
             logger.exception(
                 "tool_book_appointment: CRITICAL commit failed: %s", commit_err,

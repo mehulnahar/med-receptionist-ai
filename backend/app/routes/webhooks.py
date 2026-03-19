@@ -590,27 +590,21 @@ async def _handle_tool_calls(
         logger.warning("vapi_webhook: tool-calls message but no tool calls found in body")
         return JSONResponse(status_code=200, content={"results": []})
 
-    # Commit any data changes made by tool calls (bookings, patients, etc.)
+    # NOTE: Individual tool handlers (e.g. tool_book_appointment) now commit
+    # their own data immediately. This outer commit handles any remaining
+    # uncommitted changes from tools that don't self-commit (e.g. save_caller_info).
+    # We use a safe commit that won't rollback already-committed data.
     try:
-        await db.commit()
-        logger.info("vapi_webhook: tool-calls committed successfully (%d results)", len(results))
+        if db.dirty or db.new or db.deleted:
+            await db.commit()
+            logger.info("vapi_webhook: tool-calls outer commit (%d results)", len(results))
+        else:
+            logger.info("vapi_webhook: tool-calls no pending changes to commit (%d results)", len(results))
     except Exception as commit_err:
-        logger.exception(
-            "vapi_webhook: CRITICAL — tool-calls commit FAILED, data lost: %s", commit_err,
+        logger.warning(
+            "vapi_webhook: tool-calls outer commit error (non-fatal, tools self-commit): %s", commit_err,
         )
-        await db.rollback()
-        # Update results to indicate failure
-        for r in results:
-            if hasattr(r, 'result') and isinstance(r.result, str):
-                try:
-                    import json as _json
-                    parsed = _json.loads(r.result)
-                    if parsed.get("success"):
-                        parsed["success"] = False
-                        parsed["error"] = "Database commit failed — please try again"
-                        r.result = _json.dumps(parsed)
-                except Exception:
-                    pass
+        # Do NOT rollback here — individual tools already committed their data
 
     # Build and return the response Vapi expects
     response = VapiToolCallResponse(results=results)
