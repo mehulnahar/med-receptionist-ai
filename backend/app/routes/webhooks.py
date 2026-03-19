@@ -591,7 +591,26 @@ async def _handle_tool_calls(
         return JSONResponse(status_code=200, content={"results": []})
 
     # Commit any data changes made by tool calls (bookings, patients, etc.)
-    await db.commit()
+    try:
+        await db.commit()
+        logger.info("vapi_webhook: tool-calls committed successfully (%d results)", len(results))
+    except Exception as commit_err:
+        logger.exception(
+            "vapi_webhook: CRITICAL — tool-calls commit FAILED, data lost: %s", commit_err,
+        )
+        await db.rollback()
+        # Update results to indicate failure
+        for r in results:
+            if hasattr(r, 'result') and isinstance(r.result, str):
+                try:
+                    import json as _json
+                    parsed = _json.loads(r.result)
+                    if parsed.get("success"):
+                        parsed["success"] = False
+                        parsed["error"] = "Database commit failed — please try again"
+                        r.result = _json.dumps(parsed)
+                except Exception:
+                    pass
 
     # Build and return the response Vapi expects
     response = VapiToolCallResponse(results=results)
