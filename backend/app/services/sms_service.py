@@ -27,6 +27,7 @@ def _get_twilio_client(account_sid: str, auth_token: str):
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.models.appointment import Appointment
@@ -101,9 +102,13 @@ async def send_appointment_confirmation(
          "to": str, "body": str}
     """
     try:
-        # Fetch appointment with patient and practice
+        # Fetch appointment with patient and practice eagerly loaded
         stmt = (
             select(Appointment)
+            .options(
+                selectinload(Appointment.patient),
+                selectinload(Appointment.practice),
+            )
             .where(
                 and_(
                     Appointment.id == appointment_id,
