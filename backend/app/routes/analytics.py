@@ -112,7 +112,7 @@ async def get_call_volume(
     practice_id = _ensure_practice(current_user, practice_id_param)
     start, end = _default_date_range(from_date, to_date)
 
-    call_date = cast(Call.started_at, Date).label("call_date")
+    call_date = cast(Call.created_at, Date).label("call_date")
 
     stmt = (
         select(
@@ -131,8 +131,8 @@ async def get_call_volume(
         .where(
             and_(
                 Call.practice_id == practice_id,
-                cast(Call.started_at, Date) >= start,
-                cast(Call.started_at, Date) <= end,
+                cast(Call.created_at, Date) >= start,
+                cast(Call.created_at, Date) <= end,
             )
         )
         .group_by(call_date)
@@ -190,8 +190,8 @@ async def get_peak_hours(
             and_(
                 Call.practice_id == practice_id,
                 Call.started_at.isnot(None),
-                cast(Call.started_at, Date) >= start,
-                cast(Call.started_at, Date) <= end,
+                cast(Call.created_at, Date) >= start,
+                cast(Call.created_at, Date) <= end,
             )
         )
         .group_by(hour_col)
@@ -238,8 +238,8 @@ async def get_booking_conversion(
         .where(
             and_(
                 Call.practice_id == practice_id,
-                cast(Call.started_at, Date) >= start,
-                cast(Call.started_at, Date) <= end,
+                cast(Call.created_at, Date) >= start,
+                cast(Call.created_at, Date) <= end,
             )
         )
     )
@@ -252,8 +252,8 @@ async def get_booking_conversion(
         .where(
             and_(
                 Call.practice_id == practice_id,
-                cast(Call.started_at, Date) >= start,
-                cast(Call.started_at, Date) <= end,
+                cast(Call.created_at, Date) >= start,
+                cast(Call.created_at, Date) <= end,
                 Call.caller_intent.in_(BOOKING_INTENTS),
             )
         )
@@ -347,8 +347,8 @@ async def get_call_outcomes(
 
     base_filter = and_(
         Call.practice_id == practice_id,
-        cast(Call.started_at, Date) >= start,
-        cast(Call.started_at, Date) <= end,
+        cast(Call.created_at, Date) >= start,
+        cast(Call.created_at, Date) <= end,
     )
 
     async def _grouped(column):
@@ -480,8 +480,8 @@ async def get_overview(
     # --- Calls ---
     call_filter = and_(
         Call.practice_id == practice_id,
-        cast(Call.started_at, Date) >= start,
-        cast(Call.started_at, Date) <= end,
+        cast(Call.created_at, Date) >= start,
+        cast(Call.created_at, Date) <= end,
     )
 
     calls_stmt = select(
