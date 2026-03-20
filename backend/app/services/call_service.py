@@ -139,6 +139,7 @@ async def save_end_of_call_report(
     direction: str = "inbound",
     started_at: datetime | None = None,
     ended_at: datetime | None = None,
+    caller_name: str | None = None,
 ) -> Call | None:
     """
     Save all end-of-call data to the call record.
@@ -219,6 +220,10 @@ async def save_end_of_call_report(
             )
     if success_evaluation is not None:
         call.success_evaluation = str(success_evaluation)[:20]
+
+    # Set caller_name from structured data (if not already set)
+    if caller_name and not call.caller_name:
+        call.caller_name = caller_name
 
     # Set duration: use explicit value or calculate from timestamps
     if duration is not None:

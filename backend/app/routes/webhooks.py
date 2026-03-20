@@ -826,6 +826,13 @@ async def _handle_end_of_call_report(
         call_type = call_obj.get("type", "")
         direction = "outbound" if "outbound" in call_type.lower() else "inbound"
 
+        # Extract caller_name early from structured data so it's saved with the call
+        early_caller_name = None
+        if structured_data and isinstance(structured_data, dict):
+            early_caller_name = structured_data.get("caller_name")
+            if early_caller_name:
+                early_caller_name = str(early_caller_name)[:100]
+
         # HOOK-03 required fields: recording_url, transcript, summary, structured_data, cost
         call_record = await save_end_of_call_report(
             db=db,
@@ -843,6 +850,7 @@ async def _handle_end_of_call_report(
             direction=direction,
             started_at=started_at_dt,
             ended_at=ended_at_dt,
+            caller_name=early_caller_name,
         )
 
         # Auto-flag for callback if call was dropped/missed and we have caller info
