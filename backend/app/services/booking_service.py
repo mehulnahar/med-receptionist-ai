@@ -55,6 +55,7 @@ async def find_or_create_patient(
     first_name = first_name.strip().title()
     last_name = last_name.strip().title()
 
+    # --- Tier 1: Exact match on (practice_id, first_name, last_name, dob) ---
     stmt = (
         select(Patient)
         .where(
@@ -68,6 +69,59 @@ async def find_or_create_patient(
     )
     result = await db.execute(stmt)
     patient = result.scalar_one_or_none()
+
+    # --- Tier 2: Fuzzy match on (practice_id, dob) + partial name ---
+    if not patient:
+        stmt2 = (
+            select(Patient)
+            .where(
+                and_(
+                    Patient.practice_id == practice_id,
+                    Patient.dob == dob,
+                )
+            )
+        )
+        result2 = await db.execute(stmt2)
+        candidates = result2.scalars().all()
+        for c in candidates:
+            c_first = (c.first_name or "").lower()
+            c_last = (c.last_name or "").lower()
+            new_first = first_name.lower()
+            new_last = last_name.lower()
+            # Match if last names are same/similar and first name is contained
+            last_match = c_last == new_last
+            first_match = (
+                c_first == new_first
+                or new_first in c_first
+                or c_first in new_first
+                or c_first.split()[0] == new_first.split()[0]  # same first word
+            )
+            if last_match and first_match:
+                patient = c
+                break
+
+    # --- Tier 3: Phone-based fallback ---
+    if not patient and phone:
+        # Normalize phone for comparison (strip non-digits, take last 10)
+        clean_phone = "".join(c for c in phone if c.isdigit())
+        if len(clean_phone) >= 10:
+            phone_suffix = clean_phone[-10:]
+            stmt3 = (
+                select(Patient)
+                .where(
+                    and_(
+                        Patient.practice_id == practice_id,
+                        Patient.phone.isnot(None),
+                    )
+                )
+            )
+            result3 = await db.execute(stmt3)
+            phone_candidates = result3.scalars().all()
+            for c in phone_candidates:
+                c_phone = "".join(ch for ch in (c.phone or "") if ch.isdigit())
+                if len(c_phone) >= 10 and c_phone[-10:] == phone_suffix:
+                    patient = c
+                    break
 
     if patient:
         # Update any newly provided optional fields
