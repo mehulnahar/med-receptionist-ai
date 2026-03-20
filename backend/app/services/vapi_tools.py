@@ -440,6 +440,14 @@ async def tool_book_appointment(
         language = language or "en"
 
         # --- Resolve or create patient ---
+        # If phone is missing/null, try to get it from the call record
+        phone = params.get("phone")
+        if not phone and vapi_call_id:
+            call_row = await db.execute(
+                select(Call.caller_number).where(Call.vapi_call_id == vapi_call_id)
+            )
+            phone = call_row.scalar_one_or_none()
+
         if params.get("patient_id"):
             patient_id = UUID(params["patient_id"])
             # Verify the patient belongs to this practice
@@ -465,7 +473,7 @@ async def tool_book_appointment(
                 first_name=params["first_name"],
                 last_name=params["last_name"],
                 dob=_parse_date(params["dob"]),
-                phone=params.get("phone"),
+                phone=phone,
                 address=params.get("address"),
                 insurance_carrier=params.get("insurance_carrier"),
                 member_id=params.get("member_id"),
