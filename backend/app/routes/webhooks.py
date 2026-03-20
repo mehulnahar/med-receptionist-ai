@@ -744,10 +744,14 @@ async def _handle_end_of_call_report(
                     parts.append(f"{role}: {content}")
             transcript = "\n".join(parts) if parts else None
 
-        # Extract recording URL
+        # Extract recording URL - check multiple locations
         recording_url = (
             artifact.get("recordingUrl")
             or _safe_get(artifact, "recording", "url")
+            or call_obj.get("recordingUrl")
+            or call_obj.get("stereoRecordingUrl")
+            or _safe_get(body, "message", "recordingUrl")
+            or _safe_get(body, "message", "stereoRecordingUrl")
         )
 
         # Extract summary and structured data from analysis
@@ -859,23 +863,40 @@ async def _handle_end_of_call_report(
         # Extract caller_name from structured data and try to match patient
         if call_record:
             try:
-                # Set caller_name from structured data
+                # Set caller_name, intent, sentiment from structured data
                 if structured_data and isinstance(structured_data, dict):
                     sdata_name = structured_data.get("caller_name")
                     if sdata_name and not call_record.caller_name:
                         call_record.caller_name = str(sdata_name)[:100]
+                    # Also extract intent and sentiment if available
+                    if hasattr(call_record, "caller_intent") and not call_record.caller_intent:
+                        intent = structured_data.get("caller_intent")
+                        if intent:
+                            call_record.caller_intent = str(intent)[:50]
+                    if hasattr(call_record, "caller_sentiment") and not call_record.caller_sentiment:
+                        sentiment = structured_data.get("caller_sentiment")
+                        if sentiment:
+                            call_record.caller_sentiment = str(sentiment)[:50]
 
-                # Try to match caller to an existing patient by phone number
+                # Try to match caller to an existing patient by phone number (fuzzy: last 10 digits)
                 if call_record.caller_phone and not call_record.patient_id and practice_id:
                     from app.models.patient import Patient as PatientModel
-                    phone_normalized = call_record.caller_phone
+                    clean_digits = "".join(c for c in call_record.caller_phone if c.isdigit())
+                    phone_suffix = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+                    # Try exact match first, then fuzzy suffix match
                     patient_match = await db.execute(
                         select(PatientModel).where(
                             PatientModel.practice_id == practice_id,
-                            PatientModel.phone == phone_normalized,
-                        ).limit(1)
+                            PatientModel.phone.isnot(None),
+                        )
                     )
-                    matched_patient = patient_match.scalar_one_or_none()
+                    all_patients = patient_match.scalars().all()
+                    matched_patient = None
+                    for p in all_patients:
+                        p_digits = "".join(c for c in (p.phone or "") if c.isdigit())
+                        if len(p_digits) >= 10 and p_digits[-10:] == phone_suffix:
+                            matched_patient = p
+                            break
                     if matched_patient:
                         call_record.patient_id = matched_patient.id
                         if not call_record.caller_name:

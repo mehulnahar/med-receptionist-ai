@@ -444,7 +444,7 @@ async def tool_book_appointment(
         phone = params.get("phone")
         if not phone and vapi_call_id:
             call_row = await db.execute(
-                select(Call.caller_number).where(Call.vapi_call_id == vapi_call_id)
+                select(Call.caller_phone).where(Call.vapi_call_id == vapi_call_id)
             )
             phone = call_row.scalar_one_or_none()
 
