@@ -18,7 +18,7 @@ import {
   FileText,
   Loader2,
 } from 'lucide-react'
-import { format, isToday, parseISO, formatDistanceToNow } from 'date-fns'
+import { format, isToday, parseISO, formatDistanceToNow, addDays, startOfWeek, endOfWeek } from 'date-fns'
 import clsx from 'clsx'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -141,6 +141,7 @@ export default function Dashboard() {
   const [callbacksLoading, setCallbacksLoading] = useState(true)
 
   const todayStr = format(new Date(), 'yyyy-MM-dd')
+  const weekEndStr = format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
 
   // ---------------------------------------------------------------------------
   // Data fetching
@@ -162,7 +163,7 @@ export default function Dashboard() {
       const response = await api.get('/appointments/', {
         params: {
           from_date: todayStr,
-          to_date: todayStr,
+          to_date: weekEndStr,
           limit: 100,
         },
       })
@@ -432,11 +433,11 @@ export default function Dashboard() {
           ================================================================ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
-          title="Today's Appointments"
+          title="Upcoming Appointments"
           value={nonCancelledCount}
           icon={Calendar}
           color="blue"
-          subtitle={`${appointments.length} total scheduled`}
+          subtitle={`${appointments.length} total this week`}
         />
         <StatsCard
           title="Confirmed"
@@ -461,7 +462,7 @@ export default function Dashboard() {
           value={cancelledCount}
           icon={XCircle}
           color="red"
-          subtitle="Cancelled today"
+          subtitle="Cancelled this week"
         />
       </div>
 
@@ -501,8 +502,8 @@ export default function Dashboard() {
             icon={Clock}
             color="purple"
             subtitle={
-              callStats.total_cost_today > 0
-                ? `$${callStats.total_cost_today.toFixed(2)} today`
+              callStats.total_calls_today > 0
+                ? (callStats.total_cost_today > 0 ? `$${callStats.total_cost_today.toFixed(2)} today` : `${callStats.total_calls_today} calls today`)
                 : 'No calls yet'
             }
           />
@@ -616,12 +617,12 @@ export default function Dashboard() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-semibold text-gray-900">
-              Today's Appointments
+              Upcoming Appointments
             </h2>
             <p className="text-sm text-gray-500 mt-0.5">
               {appointments.length === 0
-                ? 'Nothing scheduled for today'
-                : `${appointments.length} appointment${appointments.length === 1 ? '' : 's'} scheduled`}
+                ? 'Nothing scheduled this week'
+                : `${appointments.length} appointment${appointments.length === 1 ? '' : 's'} this week`}
             </p>
           </div>
           <Link
